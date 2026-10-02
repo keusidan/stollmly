@@ -82,6 +82,13 @@ void main() {
       expect(planNextChunk(covered: 80, total: 100, chunkMessages: 40), isNull);
     });
 
+    test('次の整理までの往復数', () {
+      expect(turnsUntilNextChunk(covered: 0, total: 3, chunkMessages: 40), 20);
+      expect(turnsUntilNextChunk(covered: 0, total: 41, chunkMessages: 40), 1);
+      expect(turnsUntilNextChunk(covered: 0, total: 42, chunkMessages: 40), 0);
+      expect(turnsUntilNextChunk(covered: 40, total: 45, chunkMessages: 40), 19);
+    });
+
     test('あらすじは区切りがたまるか、追いついたときに畳み込む', () {
       expect(shouldFoldSynopsis(unfolded: 0, hasMoreChunks: false), isFalse);
       expect(shouldFoldSynopsis(unfolded: 1, hasMoreChunks: false), isTrue);

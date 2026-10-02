@@ -49,6 +49,12 @@ String contentHash(String text) => prefixHash([
   return (covered, end);
 }
 
+/// 次の自動整理 (区切り) まであと何往復か。0 ならもう整理できる状態。
+int turnsUntilNextChunk({required int covered, required int total, required int chunkMessages, int reserveTail = 2}) {
+  final remaining = covered + chunkMessages + reserveTail - total;
+  return remaining <= 0 ? 0 : (remaining + 1) ~/ 2;
+}
+
 /// あらすじに区切り要約を畳み込むか。未反映が [batch] 個たまったか、もう新しい区切りが無いとき。
 bool shouldFoldSynopsis({required int unfolded, required bool hasMoreChunks, int batch = 5}) =>
     unfolded > 0 && (!hasMoreChunks || unfolded >= batch);

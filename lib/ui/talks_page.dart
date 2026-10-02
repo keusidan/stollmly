@@ -33,7 +33,7 @@ class TalksPage extends StatelessWidget {
                 final preview = last == null
                     ? ''
                     : '${last.role == MessageRole.user ? 'あなた: ' : (s.isGroup ? '${state.characterById(last.characterId)?.name ?? ''}: ' : '')}'
-                          '${last.content.replaceAll('\n', ' ')}';
+                          '${last.content.replaceAll('*', '').replaceAll('\n', ' ')}';
                 return Dismissible(
                   key: ValueKey(s.id),
                   direction: DismissDirection.endToStart,

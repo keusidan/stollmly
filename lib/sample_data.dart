@@ -1,7 +1,17 @@
 import 'models.dart';
 
 /// 初回起動時に入れておくオリジナルのサンプルキャラクター。
-List<Character> sampleCharacters() => [
+/// 一覧は更新日時の新しい順なので、並べたい順に 1 秒ずつ古くする (先頭が白瀬 ミオ)。
+List<Character> sampleCharacters() {
+  final now = DateTime.now();
+  final list = _samples();
+  for (var i = 0; i < list.length; i++) {
+    list[i].updatedAt = now.subtract(Duration(seconds: i));
+  }
+  return list;
+}
+
+List<Character> _samples() => [
   Character(
     name: '白瀬 ミオ',
     tagline: '世話焼きで少し素直じゃない幼なじみ',

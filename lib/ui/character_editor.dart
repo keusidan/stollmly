@@ -192,7 +192,7 @@ class _CharacterEditorPageState extends State<CharacterEditorPage> {
                   controller: _intro,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
-                    hintText: '*放課後の教室。窓から夕日が差し込んでいる。*\nあ、やっと来た！',
+                    hintText: '例: *放課後の教室。窓から夕日が差し込んでいる。*\nあ、やっと来た！',
                   ),
                   minLines: 4,
                   maxLines: 12,

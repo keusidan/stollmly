@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:stollmly/models.dart';
 import 'package:stollmly/prompt.dart';
+import 'package:stollmly/sample_data.dart';
 import 'package:stollmly/update/updater.dart';
 
 void main() {
@@ -115,6 +116,11 @@ void main() {
     expect(stripSpeakerPrefix('ミオ: やっほー', 'ミオ'), 'やっほー');
     expect(stripSpeakerPrefix('[ミオ]：やっほー', 'ミオ'), 'やっほー');
     expect(stripSpeakerPrefix('やっほー ミオ: です', 'ミオ'), 'やっほー ミオ: です');
+  });
+
+  test('サンプルキャラは白瀬 ミオが先頭に並ぶ (更新日時が新しい順)', () {
+    final samples = sampleCharacters()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    expect(samples.first.name, '白瀬 ミオ');
   });
 
   test('Character の JSON 往復', () {

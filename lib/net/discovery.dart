@@ -24,8 +24,24 @@ class HostDiscovery {
     }
 
     final locals = await _localIPv4s();
-    await Future.wait([_udpBroadcast(locals, udpWindow, add), _subnetSweep(locals, add, onProgress)]);
+    await Future.wait([
+      _probeSameMachine(add),
+      _udpBroadcast(locals, udpWindow, add),
+      _subnetSweep(locals, add, onProgress),
+    ]);
     return found.values.toList();
+  }
+
+  /// LAN に出ない「同じマシン」のホストを調べる。
+  /// デスクトップ版は同じ PC の 127.0.0.1、Android エミュレーターはホスト PC を指す 10.0.2.2。
+  static Future<void> _probeSameMachine(void Function(HostInfo) add) async {
+    final targets = ['127.0.0.1', if (Platform.isAndroid) '10.0.2.2'];
+    await Future.wait([
+      for (final ip in targets)
+        HostClient.probe(ip, defaultHostPort, timeout: const Duration(milliseconds: 900)).then((info) {
+          if (info != null) add(info);
+        }),
+    ]);
   }
 
   static Future<List<InternetAddress>> _localIPv4s() async {

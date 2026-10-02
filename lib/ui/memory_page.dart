@@ -66,6 +66,7 @@ class MemoryPage extends StatelessWidget {
             title: Text('要約済み: ${mem.coveredCount} / ${s.messages.length} 件の発言'),
             subtitle: Text(
               '${cfg.interval} 往復ごとに自動でまとめます。'
+              '${_nextHint(mem.coveredCount, s.messages.length, cfg.chunkMessages)}'
               '${busy ? '\nいま整理しています…' : ''}'
               '${mem.lastError != null ? '\n前回のエラー: ${mem.lastError}' : ''}',
             ),
@@ -133,6 +134,11 @@ class MemoryPage extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static String _nextHint(int covered, int total, int chunkMessages) {
+    final turns = turnsUntilNextChunk(covered: covered, total: total, chunkMessages: chunkMessages);
+    return turns == 0 ? '(次の整理を待っています)' : '(次の整理まであと $turns 往復)';
   }
 
   Future<void> _rebuild(BuildContext context, AppState state, ChatSession s) async {

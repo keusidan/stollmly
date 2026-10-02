@@ -55,7 +55,7 @@ class SettingsPage extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.memory),
-            title: Text('記憶する会話の長さ: 約 ${settings.contextChars} 文字'),
+            title: Text('直近の会話を渡す上限: 約 ${settings.contextChars} 文字'),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -69,7 +69,10 @@ class SettingsPage extends StatelessWidget {
                     state.commit();
                   },
                 ),
-                const Text('大きくすると昔の会話も覚えますが、モデルのコンテキスト長を超えると失敗します。'),
+                const Text(
+                  '直近の会話をそのまま AI に渡す量の上限です。古い内容は長期記憶が受け持ちます。'
+                  'モデルのコンテキスト長を超えると失敗するので、大きくしすぎないでください。',
+                ),
               ],
             ),
           ),
@@ -193,7 +196,7 @@ class SettingsPage extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: SegmentedButton<String>(
               segments: const [
-                ButtonSegment(value: 'system', label: Text('端末に合わせる'), icon: Icon(Icons.brightness_auto)),
+                ButtonSegment(value: 'system', label: Text('自動'), icon: Icon(Icons.brightness_auto)),
                 ButtonSegment(value: 'light', label: Text('ライト'), icon: Icon(Icons.light_mode)),
                 ButtonSegment(value: 'dark', label: Text('ダーク'), icon: Icon(Icons.dark_mode)),
               ],
@@ -275,6 +278,8 @@ class _IntSlider extends StatelessWidget {
   Widget build(BuildContext context) {
     final v = value.clamp(min, max);
     return ListTile(
+      // アイコン付きのほかの項目と左端を揃える
+      leading: const SizedBox(width: 24),
       title: Text(label(v)),
       subtitle: Slider(
         value: v.toDouble(),
