@@ -57,7 +57,8 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _send(AppState state, ChatSession s) async {
     final text = _input.text;
-    if (state.isGenerating(s)) return;
+    // 空のまま送っても何もしない (応答だけ欲しいときは「応答を生成」ボタン)
+    if (state.isGenerating(s) || text.trim().isEmpty) return;
     _input.clear();
     setState(() => _suggestions = const []);
     await _run(() => state.sendUserMessage(s, text, speaker: state.characterById(_nextSpeakerId)));
@@ -105,7 +106,7 @@ class _ChatPageState extends State<ChatPage> {
                   Text(
                     [
                       if (s.parentTitle != null) '分岐',
-                      'あなた: ${persona?.name ?? '未設定'}',
+                      'プロフィール: ${persona?.name ?? '未設定'}',
                       ?state.settings.model,
                       if (state.isMemoryBusy(s)) '記憶を整理中…',
                     ].join(' · '),
@@ -321,7 +322,7 @@ class _ChatPageState extends State<ChatPage> {
                 maxLines: 6,
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
-                  hintText: 'メッセージ (*描写* も使えます)',
+                  hintText: 'メッセージ',
                   filled: true,
                   fillColor: scheme.surfaceContainerHighest,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
@@ -538,7 +539,9 @@ class _MessageBubble extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final isUser = message.role == MessageRole.user;
     final character = isUser ? null : state.characterById(message.characterId);
-    final showControls = !isUser && isLast && !generating;
+    // イントロ (まだ自分が一度も話していない段階) は作り直しの対象にしない
+    final hasUserMessage = session.messages.any((m) => m.role == MessageRole.user);
+    final showControls = !isUser && isLast && !generating && hasUserMessage;
 
     final bubble = Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),

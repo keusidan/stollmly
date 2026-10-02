@@ -181,7 +181,7 @@ class _ConnectPageState extends State<ConnectPage> {
             const SizedBox(height: 16),
             Row(
               children: [
-                Expanded(child: Text('同じ Wi-Fi 上のホスト', style: theme.textTheme.titleMedium)),
+                Expanded(child: Text('見つかったホスト', style: theme.textTheme.titleMedium)),
                 TextButton.icon(
                   onPressed: scanning ? null : _scan,
                   icon: const Icon(Icons.radar),
