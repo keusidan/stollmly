@@ -1,0 +1,10 @@
+name: stollmly_host
+description: LAN bridge that exposes a local LLM (Ollama / llama.cpp / LM Studio / vLLM) to the stollmly app.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.9.0
+
+dev_dependencies:
+  lints: ^6.0.0

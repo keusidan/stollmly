@@ -1,0 +1,18 @@
+# systemd ユーザーサービス。~/.config/systemd/user/ に置いて
+#   systemctl --user daemon-reload && systemctl --user enable --now stollmly-host
+# ログアウト中も動かすなら: sudo loginctl enable-linger $USER
+[Unit]
+Description=stollmly LLM LAN bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/stollmly-host
+# 上流を固定したい場合 (未指定なら Ollama / llama.cpp / LM Studio / vLLM を自動検出)
+#Environment=STOLLMLY_UPSTREAM=http://127.0.0.1:11434/v1
+#Environment=STOLLMLY_TOKEN=change-me
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
