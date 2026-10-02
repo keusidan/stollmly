@@ -6,6 +6,8 @@ LLM はクラウドではなく **自分の PC (LAN 上) で動いているも�
 - 対応: Android / iOS / Windows / macOS / Linux (Flutter)
 - LLM: Ollama / llama.cpp / LM Studio / vLLM など OpenAI 互換 API を話すもの
 - ビルド済みファイル: [Releases](../../releases) (push のたびに `alpha-YYYYMMDDTHHMMSSZ` で自動公開)
+  - 前回から変更があったプラットフォームだけをビルドし、できた順にアップロードします。各リリースのノートに「各プラットフォームの最新版がどのリリースにあるか」の表があります
+  - 全部ビルドし直したいときは Actions → Build & Release → Run workflow で `force_all` をオン
 
 ## しくみ
 
@@ -91,7 +93,7 @@ sudo firewall-cmd --permanent --add-port=47320/tcp --add-port=47321/udp && sudo 
 
 | OS | ファイル | 備考 |
 |---|---|---|
-| Android | `stollmly-android.apk` | 「提供元不明のアプリ」を許可してインストール |
+| Android | `stollmly-android.apk` | arm64 端末向け。「提供元不明のアプリ」を許可してインストール |
 | iOS | `stollmly-ios-unsigned.ipa` | 未署名。AltStore / SideStore などで自分の Apple ID で署名して入れる |
 | Windows | `stollmly-windows-x64.zip` | 展開して `stollmly.exe`。自動更新のため書き込み可能なフォルダ (例: `%LOCALAPPDATA%\stollmly`) に置く |
 | macOS | `stollmly-macos.zip` | 未公証。初回は右クリック →「開く」 |

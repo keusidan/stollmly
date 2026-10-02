@@ -17,6 +17,28 @@ void main() {
     });
   });
 
+  group('Updater.pickLatest', () {
+    ReleaseInfo release(String tag, List<String> assets) => ReleaseInfo(
+      tag: tag,
+      name: tag,
+      body: '',
+      htmlUrl: Uri.parse('https://example.com/$tag'),
+      publishedAt: null,
+      assets: [for (final a in assets) ReleaseAsset(name: a, url: Uri.parse('https://example.com/$a'), size: 1)],
+    );
+
+    test('自分のプラットフォームのアセットを含む最新リリースを選ぶ', () {
+      final releases = [
+        release('alpha-20261003T000000Z', ['stollmly-ios-unsigned.ipa']),
+        release('alpha-20261001T000000Z', ['stollmly-android.apk', 'stollmly-ios-unsigned.ipa']),
+        release('alpha-20261002T000000Z', ['stollmly-android.apk']),
+      ];
+      expect(Updater.pickLatest(releases, 'stollmly-android.apk')?.tag, 'alpha-20261002T000000Z');
+      expect(Updater.pickLatest(releases, 'stollmly-ios-unsigned.ipa')?.tag, 'alpha-20261003T000000Z');
+      expect(Updater.pickLatest(releases, 'stollmly-macos.zip'), isNull);
+    });
+  });
+
   group('PromptBuilder', () {
     final mio = Character(
       name: 'ミオ',

@@ -1,7 +1,12 @@
-# push のたびに 5 プラットフォーム + LLM ホストをビルドし、
-# alpha-<UTC タイムスタンプ (ISO 8601 基本形式)> のタグで GitHub Release に置く。
-# アプリ内アップデートはこのリリースのアセット名を見ているので、名前を変えるときは
-# lib/update/updater.dart の assetNameForPlatform も揃えること。
+# push のたびに「前回そのプラットフォームを出したリリースから変更があった部分」だけをビルドし、
+# alpha-<UTC タイムスタンプ (ISO 8601 基本形式)> のリリースに、できた順にアップロードする。
+#
+# - prepare : 変更検出 (.github/scripts/plan.py) とリリース作成
+# - test    : ビルドと並行して実行。各ビルドはアップロード直前に test の成功を待つ
+# - 各ビルド: 変更があったものだけ実行し、終わり次第アップロード (.github/scripts/publish.sh)
+# - finalize: リリースノート作成。何も上がらなかったリリースは削除 (.github/scripts/finalize.py)
+#
+# アセット名を変えるときは lib/update/updater.dart と .github/scripts/*.py も揃えること。
 name: Build & Release
 
 on:
@@ -12,9 +17,15 @@ on:
       - 'docs/**'
       - 'LICENSE'
   workflow_dispatch:
+    inputs:
+      force_all:
+        description: '変更の有無に関係なく全部ビルドする'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -24,21 +35,46 @@ env:
   FLUTTER_VERSION: '3.47.6'
 
 jobs:
-  version:
+  prepare:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.v.outputs.tag }}
       build_name: ${{ steps.v.outputs.build_name }}
       build_number: ${{ steps.v.outputs.build_number }}
+      any: ${{ steps.plan.outputs.any }}
+      android: ${{ steps.plan.outputs.android }}
+      ios: ${{ steps.plan.outputs.ios }}
+      macos: ${{ steps.plan.outputs.macos }}
+      windows: ${{ steps.plan.outputs.windows }}
+      linux: ${{ steps.plan.outputs.linux }}
+      host: ${{ steps.plan.outputs.host }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - id: v
         run: |
           # Git のタグ名には ':' を使えないため、ISO 8601 の基本形式 (区切り記号なし) を使う
           echo "tag=alpha-$(date -u +%Y%m%dT%H%M%SZ)" >> "$GITHUB_OUTPUT"
           echo "build_name=0.1.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
           echo "build_number=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_ALL: ${{ inputs.force_all }}
+        run: python3 .github/scripts/plan.py
+      - name: Create release
+        if: steps.plan.outputs.any == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$TAG" --prerelease --notes "ビルド中… できたものから順に追加されます。"
 
   test:
+    needs: prepare
+    if: needs.prepare.outputs.any == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,14 +95,19 @@ jobs:
           dart analyze --fatal-infos
 
   android:
-    needs: [version, test]
+    needs: prepare
+    if: needs.prepare.outputs.android == 'true'
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -82,27 +123,30 @@ jobs:
           if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
             echo "::warning::ANDROID_KEYSTORE_BASE64 が未設定のため一時的な debug 鍵で署名します。アプリ内アップデートで APK を上書きできません (README 参照)。"
           fi
-          flutter build apk --release \
-            --build-name=${{ needs.version.outputs.build_name }} \
-            --build-number=${{ needs.version.outputs.build_number }} \
-            --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} \
+          # 現行の Android 端末はほぼ arm64 のみなので、32bit ARM / x86_64 は省いてビルド時間とサイズを削る
+          flutter build apk --release --target-platform android-arm64 \
+            --build-name=${{ needs.prepare.outputs.build_name }} \
+            --build-number=${{ needs.prepare.outputs.build_number }} \
+            --dart-define=APP_VERSION=$TAG \
             --dart-define=UPDATE_REPO=${{ github.repository }}
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-release.apk dist/stollmly-android.apk
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android
-          path: dist/*
-          if-no-files-found: error
+      - run: bash .github/scripts/publish.sh dist/stollmly-android.apk
 
   linux:
-    needs: [version, test]
+    needs: prepare
+    if: needs.prepare.outputs.linux == 'true'
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+      # apt-get update (約 40 秒) を避けるため、パッケージをキャッシュする
+      - uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: libgtk-3-dev liblzma-dev libstdc++-12-dev ninja-build
+          version: 1.0
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -111,26 +155,21 @@ jobs:
       - name: Build app
         run: |
           flutter build linux --release \
-            --build-name=${{ needs.version.outputs.build_name }} \
-            --build-number=${{ needs.version.outputs.build_number }} \
-            --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} \
+            --build-name=${{ needs.prepare.outputs.build_name }} \
+            --build-number=${{ needs.prepare.outputs.build_number }} \
+            --dart-define=APP_VERSION=$TAG \
             --dart-define=UPDATE_REPO=${{ github.repository }}
           mkdir -p dist
           tar -C build/linux/x64/release/bundle -czf dist/stollmly-linux-x64.tar.gz .
-      - name: Build host
-        working-directory: host
-        run: |
-          dart pub get
-          dart compile exe bin/stollmly_host.dart -o ../dist/stollmly-host-linux-x64
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux
-          path: dist/*
-          if-no-files-found: error
+      - run: bash .github/scripts/publish.sh dist/stollmly-linux-x64.tar.gz
 
   windows:
-    needs: [version, test]
+    needs: prepare
+    if: needs.prepare.outputs.windows == 'true'
     runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -142,27 +181,22 @@ jobs:
         shell: pwsh
         run: |
           flutter build windows --release `
-            --build-name=${{ needs.version.outputs.build_name }} `
-            --build-number=${{ needs.version.outputs.build_number }} `
-            --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} `
+            --build-name=${{ needs.prepare.outputs.build_name }} `
+            --build-number=${{ needs.prepare.outputs.build_number }} `
+            --dart-define=APP_VERSION=$env:TAG `
             --dart-define=UPDATE_REPO=${{ github.repository }}
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\stollmly-windows-x64.zip
-      - name: Build host
-        shell: pwsh
-        working-directory: host
-        run: |
-          dart pub get
-          dart compile exe bin/stollmly_host.dart -o ..\dist\stollmly-host-windows-x64.exe
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: dist/*
-          if-no-files-found: error
+      - shell: bash
+        run: bash .github/scripts/publish.sh dist/stollmly-windows-x64.zip
 
   macos:
-    needs: [version, test]
+    needs: prepare
+    if: needs.prepare.outputs.macos == 'true'
     runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -173,26 +207,21 @@ jobs:
       - name: Build app
         run: |
           flutter build macos --release \
-            --build-name=${{ needs.version.outputs.build_name }} \
-            --build-number=${{ needs.version.outputs.build_number }} \
-            --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} \
+            --build-name=${{ needs.prepare.outputs.build_name }} \
+            --build-number=${{ needs.prepare.outputs.build_number }} \
+            --dart-define=APP_VERSION=$TAG \
             --dart-define=UPDATE_REPO=${{ github.repository }}
           mkdir -p dist
           ditto -c -k --keepParent build/macos/Build/Products/Release/stollmly.app dist/stollmly-macos.zip
-      - name: Build host
-        working-directory: host
-        run: |
-          dart pub get
-          dart compile exe bin/stollmly_host.dart -o ../dist/stollmly-host-macos-arm64
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos
-          path: dist/*
-          if-no-files-found: error
+      - run: bash .github/scripts/publish.sh dist/stollmly-macos.zip
 
   ios:
-    needs: [version, test]
+    needs: prepare
+    if: needs.prepare.outputs.ios == 'true'
     runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -203,51 +232,53 @@ jobs:
       - name: Build unsigned IPA
         run: |
           flutter build ios --release --no-codesign \
-            --build-name=${{ needs.version.outputs.build_name }} \
-            --build-number=${{ needs.version.outputs.build_number }} \
-            --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} \
+            --build-name=${{ needs.prepare.outputs.build_name }} \
+            --build-number=${{ needs.prepare.outputs.build_number }} \
+            --dart-define=APP_VERSION=$TAG \
             --dart-define=UPDATE_REPO=${{ github.repository }}
           mkdir -p dist ipa/Payload
           cp -R build/ios/iphoneos/Runner.app ipa/Payload/
           (cd ipa && zip -qry ../dist/stollmly-ios-unsigned.ipa Payload)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ios
-          path: dist/*
-          if-no-files-found: error
+      - run: bash .github/scripts/publish.sh dist/stollmly-ios-unsigned.ipa
 
-  release:
-    needs: [version, android, linux, windows, macos, ios]
+  host:
+    needs: prepare
+    if: needs.prepare.outputs.host == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            out: stollmly-host-linux-x64
+          - os: macos-latest
+            out: stollmly-host-macos-arm64
+          - os: windows-latest
+            out: stollmly-host-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      # ホストは依存なしの Dart なので Flutter ではなく Dart SDK だけで足りる (セットアップが速い)
+      - uses: dart-lang/setup-dart@v1
+      - name: Build host
+        shell: bash
+        working-directory: host
+        run: |
+          dart pub get
+          mkdir -p ../dist
+          dart compile exe bin/stollmly_host.dart -o ../dist/${{ matrix.out }}
+      - shell: bash
+        run: bash .github/scripts/publish.sh dist/${{ matrix.out }}
+
+  finalize:
+    needs: [prepare, test, android, linux, windows, macos, ios, host]
+    if: always() && needs.prepare.outputs.any == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.version.outputs.tag }}
-        run: |
-          ls -la dist
-          (cd dist && sha256sum * > SHA256SUMS.txt)
-          cat > notes.md <<EOF
-          Commit: ${GITHUB_SHA} (${GITHUB_REF_NAME})
-
-          | ファイル | 対象 |
-          |---|---|
-          | stollmly-android.apk | Android |
-          | stollmly-ios-unsigned.ipa | iOS (未署名。AltStore / SideStore 等で署名してインストール) |
-          | stollmly-windows-x64.zip | Windows 10/11 x64 |
-          | stollmly-macos.zip | macOS (未公証。初回は右クリック →「開く」) |
-          | stollmly-linux-x64.tar.gz | Linux x64 |
-          | stollmly-host-* | LLM が入っている PC で動かすブリッジ |
-
-          セットアップ手順は README を参照してください。
-          EOF
-          gh release create "$TAG" dist/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "$TAG" \
-            --notes-file notes.md \
-            --prerelease
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: python3 .github/scripts/finalize.py

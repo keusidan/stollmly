@@ -94,7 +94,7 @@ class Updater {
   }
 
   static Future<ReleaseInfo?> fetchLatest() async {
-    final uri = Uri.https('api.github.com', '/repos/$updateRepo/releases', {'per_page': '20'});
+    final uri = Uri.https('api.github.com', '/repos/$updateRepo/releases', {'per_page': '50'});
     final request = await _http.getUrl(uri);
     request.headers
       ..set(HttpHeaders.acceptHeader, 'application/vnd.github+json')
@@ -121,18 +121,28 @@ class Updater {
           publishedAt: DateTime.tryParse(m['published_at'] as String? ?? ''),
           assets: [
             for (final a in m['assets'] as List<dynamic>? ?? const [])
-              ReleaseAsset(
-                name: (a as Map<String, dynamic>)['name'] as String,
-                url: Uri.parse(a['browser_download_url'] as String),
-                size: a['size'] as int? ?? 0,
-              ),
+              // アップロード途中のアセットは state が uploaded でない
+              if ((a as Map<String, dynamic>)['state'] == 'uploaded')
+                ReleaseAsset(
+                  name: a['name'] as String,
+                  url: Uri.parse(a['browser_download_url'] as String),
+                  size: a['size'] as int? ?? 0,
+                ),
           ],
         ),
       );
     }
-    if (releases.isEmpty) return null;
-    releases.sort((a, b) => b.tag.compareTo(a.tag));
-    return releases.first;
+    return pickLatest(releases, assetNameForPlatform);
+  }
+
+  /// 差分ビルドのため 1 つのリリースに全プラットフォームが揃うとは限らない。
+  /// [assetName] を含むリリースのうち最新のものを返す。
+  static ReleaseInfo? pickLatest(List<ReleaseInfo> releases, String? assetName) {
+    final candidates = [
+      for (final r in releases)
+        if (assetName == null || r.assets.any((a) => a.name == assetName)) r,
+    ]..sort((a, b) => b.tag.compareTo(a.tag));
+    return candidates.firstOrNull;
   }
 
   static Future<File> download(ReleaseAsset asset, {void Function(double progress)? onProgress}) async {
