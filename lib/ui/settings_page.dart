@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../update/updater.dart';
 import 'connect_page.dart';
+import 'output_format_page.dart';
 import 'personas_page.dart';
 import 'update_page.dart';
 import 'widgets.dart';
@@ -79,6 +80,13 @@ class SettingsPage extends StatelessWidget {
             subtitle: Text('既定: ${state.personaById(settings.defaultPersonaId)?.name ?? '未設定'}'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonasPage())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.format_quote),
+            title: const Text('出力フォーマット'),
+            subtitle: Text(settings.outputFormat == null ? '既定 (*描写* と台詞を交互に書くチャット形式)' : '編集済み'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const OutputFormatPage())),
           ),
           header('表示'),
           Padding(

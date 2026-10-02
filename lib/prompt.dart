@@ -1,7 +1,10 @@
 import 'models.dart';
 import 'net/host_client.dart';
 
-/// キャラクター設定・トークプロフィール・ユーザーノート・ロアブロック・履歴から
+/// 同梱の出力フォーマット。{{char}} {{user}} {{pov}} {{tempo}} {{openness}} {{length}} が置き換わる。
+const outputFormatAsset = 'assets/prompts/output_format.md';
+
+/// キャラクター設定・トークプロフィール・ユーザーノート・ロアブロック・出力フォーマット・履歴から
 /// OpenAI 互換の messages を組み立てる。
 class PromptBuilder {
   PromptBuilder({
@@ -10,6 +13,7 @@ class PromptBuilder {
     required this.speaker,
     required this.persona,
     required this.contextChars,
+    required this.outputFormat,
   });
 
   final ChatSession session;
@@ -22,9 +26,18 @@ class PromptBuilder {
   final Persona? persona;
   final int contextChars;
 
+  /// 出力フォーマットの指示 (assets/prompts/output_format.md か、ユーザーが編集したもの)。
+  final String outputFormat;
+
   String get _userName => (persona?.name.trim().isNotEmpty ?? false) ? persona!.name.trim() : 'ユーザー';
 
-  String _fill(String text) => text.replaceAll('{{char}}', speaker.name).replaceAll('{{user}}', _userName);
+  String _fill(String text) => text
+      .replaceAll('{{char}}', speaker.name)
+      .replaceAll('{{user}}', _userName)
+      .replaceAll('{{pov}}', speaker.pov.instruction)
+      .replaceAll('{{tempo}}', speaker.tempo.instruction)
+      .replaceAll('{{openness}}', speaker.openness.instruction)
+      .replaceAll('{{length}}', speaker.replyLength.instruction);
 
   /// [history] は今回の応答より前の発言 (末尾が最新)。
   List<ChatTurn> build(List<Message> history) {
@@ -82,15 +95,7 @@ class PromptBuilder {
 
     system
       ..writeln()
-      ..writeln('# 表現ルール')
-      ..writeln('- 行動・表情・情景の描写は *アスタリスク* で囲み、台詞はそのまま書く。')
-      ..writeln('- 視点: ${speaker.pov.instruction}。')
-      ..writeln('- テンポ: ${speaker.tempo.instruction}。')
-      ..writeln('- 距離感: ${speaker.openness.instruction}。')
-      ..writeln('- 長さ: ${speaker.replyLength.instruction}。')
-      ..writeln('- $_userName の台詞・行動・心情を勝手に決めない。$_userName の返答を待つところで止める。')
-      ..writeln('- ${speaker.name} 以外のキャラクターとして発言しない。名前の接頭辞 (「${speaker.name}:」など) は付けない。')
-      ..writeln('- キャラクター設定から外れず、AI であることには触れない。');
+      ..writeln(_fill(outputFormat).trim());
 
     final turns = <ChatTurn>[ChatTurn('system', system.toString().trim())];
     for (final m in trimmed) {

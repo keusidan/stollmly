@@ -361,6 +361,7 @@ class AppSettings {
     this.defaultPersonaId,
     this.checkUpdatesOnStart = true,
     this.skippedVersion,
+    this.outputFormat,
   });
 
   List<SavedHost> hosts;
@@ -374,6 +375,9 @@ class AppSettings {
   String? defaultPersonaId;
   bool checkUpdatesOnStart;
   String? skippedVersion;
+
+  /// ユーザーが編集した出力フォーマット。null なら同梱の既定を使う。
+  String? outputFormat;
 
   SavedHost? get activeHost {
     for (final h in hosts) {

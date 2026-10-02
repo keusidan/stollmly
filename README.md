@@ -134,6 +134,7 @@ cd host && dart run bin/stollmly_host.dart --help
 |---|---|
 | `lib/models.dart` | キャラ・トーク・プロフィール等のデータ |
 | `lib/prompt.dart` | system プロンプト組み立て (設定・ロア・ノート・履歴の切り詰め) |
+| `assets/prompts/output_format.md` | 応答の書き方 (`*描写*` と台詞を交互に書くチャット形式) の指示。アプリの「設定 → 出力フォーマット」でも編集可 |
 | `lib/net/` | ホスト探索 (UDP + サブネットスキャン) とストリーミングクライアント |
 | `lib/update/updater.dart` | GitHub Releases からの自己更新 |
 | `host/bin/stollmly_host.dart` | LAN ブリッジ (依存パッケージなしの Dart) |
