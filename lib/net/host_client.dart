@@ -127,6 +127,26 @@ class HostClient {
     return (json['models'] as List<dynamic>? ?? const []).cast<String>();
   }
 
+  /// 各入力の embedding (ホスト 0.2.0 以降)。古いホストやモデルが無いときは [HostException]。
+  Future<List<List<double>>> embed({required String model, required List<String> inputs}) async {
+    final request = await _open('POST', '/api/v1/embed');
+    final bytes = utf8.encode(jsonEncode({'model': model, 'input': inputs}));
+    request.headers.contentType = ContentType.json;
+    request.contentLength = bytes.length;
+    request.add(bytes);
+    final response = await request.close().timeout(const Duration(seconds: 60));
+    if (response.statusCode == HttpStatus.notFound) {
+      await response.drain<void>();
+      throw HostException('ホストが embedding に対応していません。stollmly-host を更新してください。');
+    }
+    if (response.statusCode != 200) await _throwFor(response);
+    final json = jsonDecode(await utf8.decodeStream(response)) as Map<String, dynamic>;
+    return [
+      for (final v in json['embeddings'] as List<dynamic>? ?? const [])
+        [for (final x in v as List<dynamic>) (x as num).toDouble()],
+    ];
+  }
+
   /// トークン片を順に流す。購読をキャンセルすると接続を切り、ホスト側の生成も止まる。
   Stream<String> chat({
     required String? model,

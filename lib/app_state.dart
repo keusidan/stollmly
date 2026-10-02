@@ -1,9 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
+import 'memory/embedding_store.dart';
+import 'memory/memory_logic.dart';
+import 'memory/memory_models.dart';
+import 'memory/memory_service.dart';
 import 'models.dart';
 import 'net/discovery.dart';
 import 'net/host_client.dart';
@@ -40,10 +47,23 @@ class AppState extends ChangeNotifier {
   /// 生成中のセッション ID → 購読
   final Map<String, StreamSubscription<String>> _generating = {};
 
+  /// 長期記憶 (要約・重要メモ・検索)。
+  late final MemoryService memory;
+  late final _HostMemoryGateway _memoryGateway;
+  final Map<String, Timer> _memoryTimers = {};
+
   static Future<AppState> load() async {
     final store = await JsonStore.open();
     final state = AppState._(store);
     state.defaultOutputFormat = await rootBundle.loadString(outputFormatAsset);
+    final support = await getApplicationSupportDirectory();
+    state._memoryGateway = _HostMemoryGateway(state);
+    state.memory = MemoryService(
+      gateway: state._memoryGateway,
+      store: FileEmbeddingStore(Directory('${support.path}${Platform.pathSeparator}embeddings')),
+      config: () => state.settings.memoryConfig,
+      onChanged: state.commit,
+    );
     final data = await store.load();
     if (data == null) {
       state.characters.addAll(sampleCharacters());
@@ -118,11 +138,17 @@ class AppState extends ChangeNotifier {
 
   void deleteCharacter(Character c) {
     characters.removeWhere((x) => x.id == c.id);
+    final before = {for (final s in sessions) s.id};
     sessions.removeWhere((s) => s.characterIds.length == 1 && s.characterIds.first == c.id);
     for (final s in sessions) {
       s.characterIds.remove(c.id);
     }
     sessions.removeWhere((s) => s.characterIds.isEmpty);
+    final remaining = {for (final s in sessions) s.id};
+    for (final id in before.difference(remaining)) {
+      _memoryTimers.remove(id)?.cancel();
+      unawaited(memory.store.delete(id));
+    }
     commit();
   }
 
@@ -211,7 +237,9 @@ class AppState extends ChangeNotifier {
 
   void deleteSession(ChatSession s) {
     stopGeneration(s);
+    _memoryTimers.remove(s.id)?.cancel();
     sessions.removeWhere((x) => x.id == s.id);
+    unawaited(memory.store.delete(s.id));
     commit();
   }
 
@@ -224,8 +252,12 @@ class AppState extends ChangeNotifier {
       personaId: s.personaId,
       userNote: s.userNote,
       messages: [for (final m in s.messages.take(index + 1)) m.copy()],
+      parentSessionId: s.id,
+      parentTitle: s.title,
     );
     sessions.add(branch);
+    // 分岐点までの記憶と embedding を引き継ぎ、足りない分はバックグラウンドで作る
+    unawaited(memory.inheritForBranch(s, branch).then((_) => scheduleMemory(branch)));
     commit();
     return branch;
   }
@@ -238,6 +270,33 @@ class AppState extends ChangeNotifier {
     s.messages.removeRange(index, s.messages.length);
     s.updatedAt = DateTime.now();
     commit();
+    scheduleMemory(s);
+  }
+
+  /// 発言を書き換える。要約済みの範囲なら記憶は巻き戻って作り直される。
+  void editMessage(ChatSession s, Message m, String text) {
+    m.content = text;
+    s.updatedAt = DateTime.now();
+    commit();
+    scheduleMemory(s);
+  }
+
+  /// 自分の発言を書き換えて、そこから会話をやり直す (以降の発言は消して応答を作り直す)。
+  Future<void> editAndResend(ChatSession s, Message m, String text, {Character? speaker}) async {
+    stopGeneration(s);
+    final index = s.messages.indexWhere((x) => x.id == m.id);
+    if (index < 0) return;
+    m.content = text.trim();
+    s.messages.removeRange(index + 1, s.messages.length);
+    await sendUserMessage(s, '', speaker: speaker);
+  }
+
+  /// 再生成の候補を切り替える。
+  void selectAlternate(ChatSession s, Message m, int index) {
+    if (index < 0 || index >= m.alternates.length) return;
+    m.selected = index;
+    commit();
+    scheduleMemory(s);
   }
 
   bool isGenerating(ChatSession s) => _generating.containsKey(s.id);
@@ -303,9 +362,27 @@ class AppState extends ChangeNotifier {
       throw HostException('LLM ホストに接続されていません。設定 → 接続 からホストを選んでください。');
     }
     stopGeneration(s);
+    // チャットを優先: 走っている要約・抽出は中断し、生成が終わってから再開する
+    _memoryGateway.cancelActive();
 
     final history = [...s.messages];
     if (!isNew) history.removeLast();
+    final prompt = append ? [...history, target] : history;
+    final cfg = settings.memoryConfig;
+    final recentStart = recentWindowStart(
+      lengths: [for (final m in prompt) m.content.length],
+      recentTurns: cfg.enabled ? cfg.recentTurns : 1 << 20,
+      covered: cfg.enabled ? s.memory.coveredCount : 0,
+      maxChars: settings.contextChars,
+    );
+    final retrieved = cfg.enabled
+        ? await memory.retrieve(
+            s,
+            prompt,
+            before: recentStart,
+            query: [for (final m in prompt.reversed.take(2)) m.content].reversed.join('\n'),
+          )
+        : const <Message>[];
     final builder = PromptBuilder(
       session: s,
       characters: {for (final id in s.characterIds) id: ?characterById(id)},
@@ -315,7 +392,12 @@ class AppState extends ChangeNotifier {
       outputFormat: outputFormat,
     );
     // append 時は末尾が assistant になり、PromptBuilder が「(続けてください)」を足す
-    final turns = builder.build(append ? [...history, target] : history);
+    final turns = builder.build(
+      prompt,
+      memory: cfg.enabled ? s.memory : null,
+      recentStart: recentStart,
+      retrieved: retrieved,
+    );
 
     if (isNew) s.messages.add(target);
     final prefix = append ? '${target.content}\n' : '';
@@ -350,6 +432,8 @@ class AppState extends ChangeNotifier {
           cancelOnError: true,
         );
     _generating[s.id] = sub;
+    // 検索を待っている間に始まったバックグラウンド処理があれば、ここでも止める
+    _memoryGateway.cancelActive();
     notifyListeners();
 
     try {
@@ -368,6 +452,7 @@ class AppState extends ChangeNotifier {
       }
       s.updatedAt = DateTime.now();
       commit();
+      scheduleMemory(s);
     }
   }
 
@@ -389,6 +474,81 @@ class AppState extends ChangeNotifier {
         .chat(model: settings.model, messages: builder.buildSuggestions(s.messages), temperature: 1.0, maxTokens: 300)
         .join();
     return PromptBuilder.parseSuggestions(text);
+  }
+
+  // ---------------------------------------------------------------- 長期記憶
+
+  String nameOf(ChatSession s, Message m) {
+    if (m.role == MessageRole.user) {
+      final p = personaFor(s);
+      return (p?.name.trim().isNotEmpty ?? false) ? p!.name.trim() : 'ユーザー';
+    }
+    return characterById(m.characterId)?.name ?? '???';
+  }
+
+  bool get _anyGenerating => _generating.isNotEmpty;
+
+  bool isMemoryBusy(ChatSession s) => memory.isRunning(s.id);
+
+  /// 少し待ってから記憶の更新をバックグラウンドで走らせる (連続した操作はまとめる)。
+  /// チャットの生成中は始めず、生成が終わったときにもう一度呼ばれる。
+  void scheduleMemory(ChatSession s, {Duration delay = const Duration(seconds: 2)}) {
+    if (!settings.memoryEnabled) return;
+    _memoryTimers[s.id]?.cancel();
+    _memoryTimers[s.id] = Timer(delay, () {
+      _memoryTimers.remove(s.id);
+      if (!sessions.contains(s) || _client == null || _anyGenerating) return;
+      unawaited(memory.process(s, (m) => nameOf(s, m)));
+    });
+  }
+
+  /// 「今すぐ再生成」: ピン留め以外の記憶を捨てて、今の履歴から作り直す。
+  Future<void> rebuildMemory(ChatSession s) async {
+    if (_client == null) throw HostException('LLM ホストに接続されていません。');
+    await memory.rebuild(s, (m) => nameOf(s, m));
+  }
+
+  /// ユーザーが記憶を編集したあとに呼ぶ。自動整理中の結果で上書きされないようにし、
+  /// 最新のチェックポイントにも反映して、巻き戻しで編集が消えないようにする。
+  void _memoryEdited(ChatSession s) {
+    final mem = s.memory;
+    mem.editVersion++;
+    reconcileMemory(mem, s.messages);
+    final last = mem.checkpoints.lastOrNull;
+    if (last != null && last.count == mem.coveredCount) {
+      mem.checkpoints[mem.checkpoints.length - 1] = MemoryCheckpoint(
+        count: last.count,
+        hash: last.hash,
+        facts: [for (final f in mem.facts) f.copy()],
+        synopsis: mem.synopsis,
+        chunkCount: last.chunkCount,
+        foldedChunks: last.foldedChunks,
+      );
+    }
+    commit();
+  }
+
+  void addFact(ChatSession s, String text, {int importance = 2, bool pinned = true}) {
+    if (text.trim().isEmpty) return;
+    s.memory.facts.add(MemoryItem(text: text.trim(), importance: importance, pinned: pinned));
+    _memoryEdited(s);
+  }
+
+  void updateFact(ChatSession s, MemoryItem item, {String? text, int? importance, bool? pinned}) {
+    if (text != null && text.trim().isNotEmpty) item.text = text.trim();
+    if (importance != null) item.importance = importance.clamp(1, 3);
+    if (pinned != null) item.pinned = pinned;
+    _memoryEdited(s);
+  }
+
+  void deleteFact(ChatSession s, MemoryItem item) {
+    s.memory.facts.removeWhere((f) => f.id == item.id);
+    _memoryEdited(s);
+  }
+
+  void setSynopsis(ChatSession s, String text) {
+    s.memory.synopsis = text.trim();
+    _memoryEdited(s);
   }
 
   // ---------------------------------------------------------------- 接続
@@ -475,6 +635,7 @@ class AppState extends ChangeNotifier {
         settings.model = list.firstOrNull;
       }
       connection = ConnectionStatus.connected;
+      memory.resetRetrieval();
       commit();
     } catch (e) {
       _client = null;
@@ -513,4 +674,53 @@ class AppState extends ChangeNotifier {
     }
     super.dispose();
   }
+}
+
+/// 記憶の処理を stollmly-host 経由で行う。チャットの生成が始まったら実行中の呼び出しを中断する。
+class _HostMemoryGateway implements MemoryGateway {
+  _HostMemoryGateway(this.state);
+
+  final AppState state;
+  StreamSubscription<String>? _active;
+  Completer<String>? _activeResult;
+
+  HostClient get _client => state._client ?? (throw HostException('LLM ホストに接続されていません。'));
+
+  void cancelActive() {
+    _active?.cancel();
+    _active = null;
+    final result = _activeResult;
+    _activeResult = null;
+    if (result != null && !result.isCompleted) result.completeError(const MemoryCancelled());
+  }
+
+  @override
+  Future<String> complete(List<ChatTurn> turns, {int maxTokens = 1024, double temperature = 0.3}) {
+    if (state._anyGenerating) return Future.error(const MemoryCancelled());
+    final client = _client;
+    final result = Completer<String>();
+    final buffer = StringBuffer();
+    _activeResult = result;
+    _active = client
+        .chat(model: state.settings.model, messages: turns, temperature: temperature, maxTokens: maxTokens)
+        .listen(
+          buffer.write,
+          onError: (Object e) {
+            if (!result.isCompleted) result.completeError(e);
+          },
+          onDone: () {
+            if (!result.isCompleted) result.complete(buffer.toString());
+          },
+          cancelOnError: true,
+        );
+    return result.future.whenComplete(() {
+      if (identical(_activeResult, result)) {
+        _activeResult = null;
+        _active = null;
+      }
+    });
+  }
+
+  @override
+  Future<List<List<double>>> embed(String model, List<String> inputs) => _client.embed(model: model, inputs: inputs);
 }

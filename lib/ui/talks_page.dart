@@ -61,7 +61,19 @@ class TalksPage extends StatelessWidget {
                             ),
                           )
                         : CharacterAvatar(cast.firstOrNull),
-                    title: Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    title: Row(
+                      children: [
+                        if (s.parentTitle != null)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: Tooltip(
+                              message: '「${s.parentTitle}」から分岐',
+                              child: const Icon(Icons.call_split, size: 16),
+                            ),
+                          ),
+                        Expanded(child: Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      ],
+                    ),
                     subtitle: Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis),
                     trailing: Column(
                       mainAxisAlignment: MainAxisAlignment.center,

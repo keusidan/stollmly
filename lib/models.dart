@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'memory/memory_models.dart';
+
 final _random = Random.secure();
 
 String newId() {
@@ -276,10 +278,14 @@ class ChatSession {
     this.personaId,
     this.userNote = '',
     List<Message>? messages,
+    SessionMemory? memory,
+    this.parentSessionId,
+    this.parentTitle,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : id = id ?? newId(),
        messages = messages ?? [],
+       memory = memory ?? SessionMemory(),
        createdAt = createdAt ?? DateTime.now(),
        updatedAt = updatedAt ?? DateTime.now();
 
@@ -291,6 +297,13 @@ class ChatSession {
   /// ユーザーノート: 毎回プロンプトに差し込まれる備忘録。
   String userNote;
   final List<Message> messages;
+
+  /// 長期記憶 (重要メモ・あらすじ・区切り要約)。
+  final SessionMemory memory;
+
+  /// 分岐して作られたトークなら、分岐元のトーク。
+  final String? parentSessionId;
+  final String? parentTitle;
   final DateTime createdAt;
   DateTime updatedAt;
 
@@ -303,6 +316,9 @@ class ChatSession {
     if (personaId != null) 'personaId': personaId,
     'userNote': userNote,
     'messages': [for (final m in messages) m.toJson()],
+    'memory': memory.toJson(),
+    'parentSessionId': ?parentSessionId,
+    'parentTitle': ?parentTitle,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -316,6 +332,9 @@ class ChatSession {
     messages: [
       for (final m in j['messages'] as List<dynamic>? ?? const []) Message.fromJson(m as Map<String, dynamic>),
     ],
+    memory: j['memory'] is Map<String, dynamic> ? SessionMemory.fromJson(j['memory'] as Map<String, dynamic>) : null,
+    parentSessionId: j['parentSessionId'] as String?,
+    parentTitle: j['parentTitle'] as String?,
     createdAt: DateTime.tryParse(j['createdAt'] as String? ?? ''),
     updatedAt: DateTime.tryParse(j['updatedAt'] as String? ?? ''),
   );
@@ -362,6 +381,14 @@ class AppSettings {
     this.checkUpdatesOnStart = true,
     this.skippedVersion,
     this.outputFormat,
+    this.memoryEnabled = true,
+    this.memoryInterval = 20,
+    this.memoryFactsMaxChars = 3000,
+    this.memorySynopsisChars = 1000,
+    this.recentTurns = 6,
+    this.retrievalEnabled = true,
+    this.retrievalTopK = 3,
+    this.embedModel = 'bge-m3',
   });
 
   List<SavedHost> hosts;
@@ -378,6 +405,31 @@ class AppSettings {
 
   /// ユーザーが編集した出力フォーマット。null なら同梱の既定を使う。
   String? outputFormat;
+
+  // 長期記憶
+  bool memoryEnabled;
+
+  /// 何往復ごとに要約・重要メモの整理をするか。
+  int memoryInterval;
+  int memoryFactsMaxChars;
+  int memorySynopsisChars;
+
+  /// プロンプトにそのまま入れる直近の往復数。
+  int recentTurns;
+  bool retrievalEnabled;
+  int retrievalTopK;
+  String embedModel;
+
+  MemoryConfig get memoryConfig => MemoryConfig(
+    enabled: memoryEnabled,
+    interval: memoryInterval,
+    factsMaxChars: memoryFactsMaxChars,
+    synopsisChars: memorySynopsisChars,
+    recentTurns: recentTurns,
+    retrievalEnabled: retrievalEnabled,
+    retrievalTopK: retrievalTopK,
+    embedModel: embedModel,
+  );
 
   SavedHost? get activeHost {
     for (final h in hosts) {
@@ -396,6 +448,15 @@ class AppSettings {
     'defaultPersonaId': defaultPersonaId,
     'checkUpdatesOnStart': checkUpdatesOnStart,
     'skippedVersion': skippedVersion,
+    'outputFormat': outputFormat,
+    'memoryEnabled': memoryEnabled,
+    'memoryInterval': memoryInterval,
+    'memoryFactsMaxChars': memoryFactsMaxChars,
+    'memorySynopsisChars': memorySynopsisChars,
+    'recentTurns': recentTurns,
+    'retrievalEnabled': retrievalEnabled,
+    'retrievalTopK': retrievalTopK,
+    'embedModel': embedModel,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -408,5 +469,14 @@ class AppSettings {
     defaultPersonaId: j['defaultPersonaId'] as String?,
     checkUpdatesOnStart: j['checkUpdatesOnStart'] as bool? ?? true,
     skippedVersion: j['skippedVersion'] as String?,
+    outputFormat: j['outputFormat'] as String?,
+    memoryEnabled: j['memoryEnabled'] as bool? ?? true,
+    memoryInterval: j['memoryInterval'] as int? ?? 20,
+    memoryFactsMaxChars: j['memoryFactsMaxChars'] as int? ?? 3000,
+    memorySynopsisChars: j['memorySynopsisChars'] as int? ?? 1000,
+    recentTurns: j['recentTurns'] as int? ?? 6,
+    retrievalEnabled: j['retrievalEnabled'] as bool? ?? true,
+    retrievalTopK: j['retrievalTopK'] as int? ?? 3,
+    embedModel: j['embedModel'] as String? ?? 'bge-m3',
   );
 }

@@ -73,6 +73,106 @@ class SettingsPage extends StatelessWidget {
               ],
             ),
           ),
+          header('長期記憶'),
+          SwitchListTile(
+            secondary: const Icon(Icons.psychology_outlined),
+            title: const Text('長期記憶を使う'),
+            subtitle: const Text('重要メモ・あらすじ・過去の発言の検索で、長いトークでも大事なことを忘れないようにします'),
+            value: settings.memoryEnabled,
+            onChanged: (v) {
+              settings.memoryEnabled = v;
+              state.commit();
+            },
+          ),
+          if (settings.memoryEnabled) ...[
+            _IntSlider(
+              label: (v) => '整理する間隔: $v 往復ごと',
+              value: settings.memoryInterval,
+              min: 5,
+              max: 50,
+              step: 5,
+              onChanged: (v) {
+                settings.memoryInterval = v;
+                state.commit();
+              },
+            ),
+            _IntSlider(
+              label: (v) => '重要メモの上限: 約 $v 字',
+              value: settings.memoryFactsMaxChars,
+              min: 1000,
+              max: 6000,
+              step: 500,
+              onChanged: (v) {
+                settings.memoryFactsMaxChars = v;
+                state.commit();
+              },
+            ),
+            _IntSlider(
+              label: (v) => 'あらすじの長さ: 約 $v 字',
+              value: settings.memorySynopsisChars,
+              min: 500,
+              max: 3000,
+              step: 250,
+              onChanged: (v) {
+                settings.memorySynopsisChars = v;
+                state.commit();
+              },
+            ),
+            _IntSlider(
+              label: (v) => 'そのまま渡す直近の会話: $v 往復',
+              value: settings.recentTurns,
+              min: 2,
+              max: 20,
+              step: 1,
+              onChanged: (v) {
+                settings.recentTurns = v;
+                state.commit();
+              },
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.manage_search),
+              title: const Text('過去の発言を検索して差し込む'),
+              subtitle: Text('ホストの embedding モデル (${settings.embedModel}) を使います。無ければ自動で無効になります'),
+              value: settings.retrievalEnabled,
+              onChanged: (v) {
+                settings.retrievalEnabled = v;
+                state.memory.resetRetrieval();
+                state.commit();
+              },
+            ),
+            if (settings.retrievalEnabled)
+              ListTile(
+                leading: const Icon(Icons.hub_outlined),
+                title: const Text('embedding モデル'),
+                subtitle: Text(settings.embedModel),
+                onTap: () async {
+                  final controller = TextEditingController(text: settings.embedModel);
+                  final value = await showDialog<String>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('embedding モデル'),
+                      content: TextField(
+                        controller: controller,
+                        decoration: const InputDecoration(helperText: 'ホストで pull 済みのモデル名 (例: bge-m3)'),
+                      ),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(context), child: const Text('キャンセル')),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, controller.text.trim()),
+                          child: const Text('保存'),
+                        ),
+                      ],
+                    ),
+                  );
+                  controller.dispose();
+                  if (value != null && value.isNotEmpty) {
+                    settings.embedModel = value;
+                    state.memory.resetRetrieval();
+                    state.commit();
+                  }
+                },
+              ),
+          ],
           header('トーク'),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
@@ -149,6 +249,39 @@ class SettingsPage extends StatelessWidget {
           ),
           const SizedBox(height: 32),
         ],
+      ),
+    );
+  }
+}
+
+class _IntSlider extends StatelessWidget {
+  const _IntSlider({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.step,
+    required this.onChanged,
+  });
+
+  final String Function(int value) label;
+  final int value;
+  final int min;
+  final int max;
+  final int step;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final v = value.clamp(min, max);
+    return ListTile(
+      title: Text(label(v)),
+      subtitle: Slider(
+        value: v.toDouble(),
+        min: min.toDouble(),
+        max: max.toDouble(),
+        divisions: (max - min) ~/ step,
+        onChanged: (d) => onChanged((d / step).round() * step),
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import '../models.dart';
 import 'connect_page.dart';
+import 'memory_page.dart';
 import 'personas_page.dart';
 import 'widgets.dart';
 
@@ -24,6 +25,18 @@ class _ChatPageState extends State<ChatPage> {
 
   /// グループトークで次に話させるキャラ。null なら順番に自動。
   String? _nextSpeakerId;
+
+  @override
+  void initState() {
+    super.initState();
+    // 開いたトークの記憶を追いつかせる (既存の長いトークは初回にまとめて作られる)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final state = AppScope.read(context);
+      final s = _session(state);
+      if (s != null) state.scheduleMemory(s, delay: const Duration(seconds: 1));
+    });
+  }
 
   @override
   void dispose() {
@@ -90,7 +103,12 @@ class _ChatPageState extends State<ChatPage> {
                 children: [
                   Text(s.title, overflow: TextOverflow.ellipsis),
                   Text(
-                    'あなた: ${persona?.name ?? '未設定'}${state.settings.model != null ? ' · ${state.settings.model}' : ''}',
+                    [
+                      if (s.parentTitle != null) '分岐',
+                      'あなた: ${persona?.name ?? '未設定'}',
+                      ?state.settings.model,
+                      if (state.isMemoryBusy(s)) '記憶を整理中…',
+                    ].join(' · '),
                     style: Theme.of(context).textTheme.labelSmall,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -108,6 +126,8 @@ class _ChatPageState extends State<ChatPage> {
           PopupMenuButton<String>(
             onSelected: (v) async {
               switch (v) {
+                case 'memory':
+                  await Navigator.push(context, MaterialPageRoute(builder: (_) => MemoryPage(sessionId: s.id)));
                 case 'persona':
                   await _choosePersona(state, s);
                 case 'new':
@@ -125,6 +145,10 @@ class _ChatPageState extends State<ChatPage> {
               }
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'memory',
+                child: ListTile(leading: Icon(Icons.psychology_outlined), title: Text('記憶')),
+              ),
               PopupMenuItem(
                 value: 'persona',
                 child: ListTile(leading: Icon(Icons.badge_outlined), title: Text('トークプロフィール')),
@@ -326,9 +350,16 @@ class _ChatPageState extends State<ChatPage> {
         if (mounted) showInfo(context, 'コピーしました');
       case _MessageAction.edit:
         final edited = await _editText(context, 'メッセージを編集', m.content);
-        if (edited != null) {
-          m.content = edited;
-          state.commit();
+        if (edited != null && edited.trim().isNotEmpty) state.editMessage(s, m, edited.trim());
+      case _MessageAction.editResend:
+        final edited = await _editText(
+          context,
+          '編集して送り直す',
+          m.content,
+          help: 'この発言を書き換えて、ここから会話をやり直します。以降の発言は消えます (残したい場合は先に「分岐」してください)。',
+        );
+        if (edited != null && edited.trim().isNotEmpty) {
+          await _run(() => state.editAndResend(s, m, edited, speaker: state.characterById(_nextSpeakerId)));
         }
       case _MessageAction.rewind:
         if (await confirm(context, 'ここから削除', 'このメッセージ以降をすべて削除して、ここから会話をやり直しますか？', ok: '削除')) {
@@ -344,14 +375,10 @@ class _ChatPageState extends State<ChatPage> {
       case _MessageAction.continueText:
         await _run(() => state.continueLast(s));
       case _MessageAction.previous:
-        if (m.selected > 0) {
-          m.selected--;
-          state.commit();
-        }
+        if (m.selected > 0) state.selectAlternate(s, m, m.selected - 1);
       case _MessageAction.next:
         if (m.selected < m.alternates.length - 1) {
-          m.selected++;
-          state.commit();
+          state.selectAlternate(s, m, m.selected + 1);
         } else {
           // 最後の候補でさらに進めたら再生成する
           await _run(() => state.regenerate(s));
@@ -446,7 +473,7 @@ Future<String?> _editText(BuildContext context, String title, String initial, {S
   return result;
 }
 
-enum _MessageAction { copy, edit, rewind, branch, regenerate, continueText, previous, next }
+enum _MessageAction { copy, edit, editResend, rewind, branch, regenerate, continueText, previous, next }
 
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
@@ -482,6 +509,12 @@ class _MessageBubble extends StatelessWidget {
               title: const Text('編集'),
               onTap: () => Navigator.pop(context, _MessageAction.edit),
             ),
+            if (message.role == MessageRole.user)
+              ListTile(
+                leading: const Icon(Icons.replay),
+                title: const Text('編集して送り直す'),
+                onTap: () => Navigator.pop(context, _MessageAction.editResend),
+              ),
             ListTile(
               leading: const Icon(Icons.call_split),
               title: const Text('ここまでで分岐 (新しいトーク)'),
