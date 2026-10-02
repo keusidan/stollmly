@@ -1,3 +1,5 @@
+import 'memory/memory_logic.dart';
+import 'memory/memory_models.dart';
 import 'models.dart';
 import 'net/host_client.dart';
 
@@ -39,11 +41,9 @@ class PromptBuilder {
       .replaceAll('{{openness}}', speaker.openness.instruction)
       .replaceAll('{{length}}', speaker.replyLength.instruction);
 
-  /// [history] は今回の応答より前の発言 (末尾が最新)。
-  List<ChatTurn> build(List<Message> history) {
-    final trimmed = _trimHistory(history);
-    final recentText = trimmed.reversed.take(8).map((m) => m.content).join('\n');
-
+  /// system プロンプトの先頭の固定部分 (キャラ設定・登場人物・ユーザー設定・口調の例・出力フォーマット)。
+  /// 会話が進んでも変わらないので、LLM 側のプレフィックスキャッシュが効く。
+  String fixedPrefix() {
     final system = StringBuffer()
       ..writeln('これは創作ロールプレイです。あなたは「${speaker.name}」を演じ、$_userName と物語を紡ぎます。')
       ..writeln()
@@ -60,30 +60,11 @@ class PromptBuilder {
       }
     }
 
-    final lore = <LoreEntry>[for (final id in session.characterIds) ...?characters[id]?.lore]
-        .where((l) => l.content.trim().isNotEmpty && l.matches(recentText))
-        .toList();
-    if (lore.isNotEmpty) {
-      system
-        ..writeln()
-        ..writeln('# 世界観・関連設定');
-      for (final l in lore) {
-        system.writeln('- ${l.title.isNotEmpty ? '${l.title}: ' : ''}${_fill(l.content).trim()}');
-      }
-    }
-
     if (persona != null && persona!.description.trim().isNotEmpty) {
       system
         ..writeln()
         ..writeln('# $_userName (ユーザー) について')
         ..writeln(persona!.description.trim());
-    }
-
-    if (session.userNote.trim().isNotEmpty) {
-      system
-        ..writeln()
-        ..writeln('# ユーザーノート (必ず守る・覚えておく事項)')
-        ..writeln(session.userNote.trim());
     }
 
     if (speaker.exampleDialogue.trim().isNotEmpty) {
@@ -96,15 +77,76 @@ class PromptBuilder {
     system
       ..writeln()
       ..writeln(_fill(outputFormat).trim());
+    return system.toString();
+  }
+
+  /// [history] は今回の応答より前の発言 (末尾が最新)。
+  ///
+  /// 長期記憶を使うときは [memory] と、[recentStart] (直近としてそのまま入れる範囲の開始位置) と、
+  /// 検索で拾った過去の発言 [retrieved] を渡す。順番は
+  /// 固定部分 → ユーザーノート → 重要メモ → あらすじ → 関連設定 → 過去の発言 → 直近の発言。
+  /// [recentStart] を省略すると [contextChars] に収まる分だけ直近を入れる (記憶なし)。
+  List<ChatTurn> build(
+    List<Message> history, {
+    SessionMemory? memory,
+    int? recentStart,
+    List<Message> retrieved = const [],
+  }) {
+    final recent = recentStart == null ? _trimHistory(history) : history.sublist(recentStart.clamp(0, history.length));
+    final recentText = recent.reversed.take(8).map((m) => m.content).join('\n');
+
+    final system = StringBuffer(fixedPrefix());
+
+    if (session.userNote.trim().isNotEmpty) {
+      system
+        ..writeln()
+        ..writeln('# ユーザーノート (必ず守る・覚えておく事項)')
+        ..writeln(session.userNote.trim());
+    }
+
+    if (memory != null && memory.facts.isNotEmpty) {
+      system
+        ..writeln()
+        ..writeln('# 重要メモ (これまでの物語で確定している事実。必ず踏まえる)')
+        ..writeln(formatFacts(memory.facts, withImportance: false));
+    }
+
+    if (memory != null && memory.synopsis.trim().isNotEmpty) {
+      system
+        ..writeln()
+        ..writeln('# これまでのあらすじ')
+        ..writeln(memory.synopsis.trim());
+    }
+
+    final lore = <LoreEntry>[for (final id in session.characterIds) ...?characters[id]?.lore]
+        .where((l) => l.content.trim().isNotEmpty && l.matches(recentText))
+        .toList();
+    if (lore.isNotEmpty) {
+      system
+        ..writeln()
+        ..writeln('# 世界観・関連設定');
+      for (final l in lore) {
+        system.writeln('- ${l.title.isNotEmpty ? '${l.title}: ' : ''}${_fill(l.content).trim()}');
+      }
+    }
+
+    if (retrieved.isNotEmpty) {
+      system
+        ..writeln()
+        ..writeln('# 関連する過去の発言 (参考。今の場面ではない)');
+      for (final m in retrieved) {
+        final text = m.content.replaceAll('\n', ' ');
+        system.writeln('- ${_nameOf(m)}: ${text.length > 300 ? '${text.substring(0, 300)}…' : text}');
+      }
+    }
 
     final turns = <ChatTurn>[ChatTurn('system', system.toString().trim())];
-    for (final m in trimmed) {
+    for (final m in recent) {
       if (m.content.trim().isEmpty) continue;
       if (m.role == MessageRole.character && m.characterId == speaker.id) {
         turns.add(ChatTurn('assistant', m.content));
       } else if (m.role == MessageRole.character) {
-        final name = characters[m.characterId]?.name ?? '???';
-        turns.add(ChatTurn('user', '[$name]\n${m.content}'));
+        turns.add(ChatTurn('user', '[${_nameOf(m)}]\n${m.content}'));
       } else {
         turns.add(ChatTurn('user', session.isGroup ? '[$_userName]\n${m.content}' : m.content));
       }
@@ -119,13 +161,14 @@ class PromptBuilder {
     return _mergeConsecutive(turns);
   }
 
+  String _nameOf(Message m) => m.role == MessageRole.user ? _userName : (characters[m.characterId]?.name ?? '???');
+
   /// 返答候補 (⚡ ボタン) 用のプロンプト。
   List<ChatTurn> buildSuggestions(List<Message> history) {
     final trimmed = _trimHistory(history);
     final log = StringBuffer();
     for (final m in trimmed.skip(trimmed.length > 12 ? trimmed.length - 12 : 0)) {
-      final name = m.role == MessageRole.user ? _userName : (characters[m.characterId]?.name ?? '???');
-      log.writeln('$name: ${m.content}');
+      log.writeln('${_nameOf(m)}: ${m.content}');
     }
     return [
       ChatTurn(

@@ -12,7 +12,7 @@ import 'dart:io';
 import 'dart:math';
 
 const protocolVersion = 1;
-const hostVersion = '0.1.0';
+const hostVersion = '0.2.0';
 const defaultHttpPort = 47320;
 const discoveryPort = 47321;
 const discoveryMagic = 'STOLLMLY_DISCOVER';
@@ -228,6 +228,24 @@ class Upstream {
     ]..sort();
   }
 
+  /// OpenAI 互換の /embeddings を呼ぶ。入力と同じ順で返す。
+  Future<List<List<num>>> embed(String model, List<String> inputs) async {
+    final request = await _open('POST', '/embeddings');
+    final bytes = utf8.encode(jsonEncode({'model': model, 'input': inputs}));
+    request.headers.contentType = ContentType.json;
+    request.contentLength = bytes.length;
+    request.add(bytes);
+    final response = await request.close();
+    final body = await utf8.decodeStream(response);
+    if (response.statusCode != 200) {
+      throw HttpException('上流が embedding でエラーを返しました (${response.statusCode}): ${_truncate(body, 500)}');
+    }
+    final data = (jsonDecode(body) as Map<String, dynamic>)['data'] as List<dynamic>? ?? const [];
+    final sorted = [for (final d in data) d as Map<String, dynamic>]
+      ..sort((a, b) => ((a['index'] as num?) ?? 0).compareTo((b['index'] as num?) ?? 0));
+    return [for (final d in sorted) (d['embedding'] as List<dynamic>).cast<num>()];
+  }
+
   /// SSE で受け取ったトークン片を順に流す。[cancel] が完了すると上流接続を切る。
   Stream<String> streamChat(Map<String, dynamic> body, Future<void> cancel) async* {
     final request = await _open('POST', '/chat/completions');
@@ -317,6 +335,7 @@ class Host {
     'name': config.name,
     'port': config.port,
     'auth': config.token != null,
+    'features': ['chat', 'embed'],
     'os': Platform.operatingSystem,
   };
 
@@ -348,6 +367,8 @@ class Host {
       switch ((request.method, path)) {
         case ('GET', '/api/v1/models'):
           return await _json(response, HttpStatus.ok, {'models': await upstream.listModels()});
+        case ('POST', '/api/v1/embed'):
+          return await _embed(request);
         case ('POST', '/api/v1/chat'):
           return await _chat(request, remote);
         default:
@@ -415,6 +436,22 @@ class Host {
       await response.close().catchError((_) {});
       final ms = DateTime.now().difference(started).inMilliseconds;
       _log('chat 終了: $chars 文字 / ${ms}ms');
+    }
+  }
+
+  Future<void> _embed(HttpRequest request) async {
+    final body = jsonDecode(await utf8.decodeStream(request)) as Map<String, dynamic>;
+    final model = body['model'];
+    final input = body['input'];
+    if (model is! String || input is! List || input.isEmpty || input.any((x) => x is! String)) {
+      return _json(request.response, HttpStatus.badRequest, {'error': 'model と input (文字列の配列) が必要です'});
+    }
+    try {
+      final vectors = await upstream.embed(model, input.cast<String>());
+      return await _json(request.response, HttpStatus.ok, {'model': model, 'embeddings': vectors});
+    } catch (e) {
+      _log('embed エラー: $e');
+      return await _json(request.response, HttpStatus.badGateway, {'error': e.toString()});
     }
   }
 
