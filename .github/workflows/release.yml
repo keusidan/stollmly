@@ -1,0 +1,253 @@
+# push のたびに 5 プラットフォーム + LLM ホストをビルドし、
+# alpha-<UTC タイムスタンプ (ISO 8601 基本形式)> のタグで GitHub Release に置く。
+# アプリ内アップデートはこのリリースのアセット名を見ているので、名前を変えるときは
+# lib/update/updater.dart の assetNameForPlatform も揃えること。
+name: Build & Release
+
+on:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.6'
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      build_name: ${{ steps.v.outputs.build_name }}
+      build_number: ${{ steps.v.outputs.build_number }}
+    steps:
+      - id: v
+        run: |
+          # Git のタグ名には ':' を使えないため、ISO 8601 の基本形式 (区切り記号なし) を使う
+          echo "tag=alpha-$(date -u +%Y%m%dT%H%M%SZ)" >> "$GITHUB_OUTPUT"
+          echo "build_name=0.1.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "build_number=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
+      - name: Host (analyze)
+        working-directory: host
+        run: |
+          dart pub get
+          dart format --output=none --set-exit-if-changed .
+          dart analyze --fatal-infos
+
+  android:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::warning::ANDROID_KEYSTORE_BASE64 が未設定のため一時的な debug 鍵で署名します。アプリ内アップデートで APK を上書きできません (README 参照)。"
+          fi
+          flutter build apk --release \
+            --build-name=${{ needs.version.outputs.build_name }} \
+            --build-number=${{ needs.version.outputs.build_number }} \
+            --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} \
+            --dart-define=UPDATE_REPO=${{ github.repository }}
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/stollmly-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*
+          if-no-files-found: error
+
+  linux:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build app
+        run: |
+          flutter build linux --release \
+            --build-name=${{ needs.version.outputs.build_name }} \
+            --build-number=${{ needs.version.outputs.build_number }} \
+            --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} \
+            --dart-define=UPDATE_REPO=${{ github.repository }}
+          mkdir -p dist
+          tar -C build/linux/x64/release/bundle -czf dist/stollmly-linux-x64.tar.gz .
+      - name: Build host
+        working-directory: host
+        run: |
+          dart pub get
+          dart compile exe bin/stollmly_host.dart -o ../dist/stollmly-host-linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    needs: [version, test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build app
+        shell: pwsh
+        run: |
+          flutter build windows --release `
+            --build-name=${{ needs.version.outputs.build_name }} `
+            --build-number=${{ needs.version.outputs.build_number }} `
+            --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} `
+            --dart-define=UPDATE_REPO=${{ github.repository }}
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\stollmly-windows-x64.zip
+      - name: Build host
+        shell: pwsh
+        working-directory: host
+        run: |
+          dart pub get
+          dart compile exe bin/stollmly_host.dart -o ..\dist\stollmly-host-windows-x64.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    needs: [version, test]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build app
+        run: |
+          flutter build macos --release \
+            --build-name=${{ needs.version.outputs.build_name }} \
+            --build-number=${{ needs.version.outputs.build_number }} \
+            --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} \
+            --dart-define=UPDATE_REPO=${{ github.repository }}
+          mkdir -p dist
+          ditto -c -k --keepParent build/macos/Build/Products/Release/stollmly.app dist/stollmly-macos.zip
+      - name: Build host
+        working-directory: host
+        run: |
+          dart pub get
+          dart compile exe bin/stollmly_host.dart -o ../dist/stollmly-host-macos-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*
+          if-no-files-found: error
+
+  ios:
+    needs: [version, test]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build unsigned IPA
+        run: |
+          flutter build ios --release --no-codesign \
+            --build-name=${{ needs.version.outputs.build_name }} \
+            --build-number=${{ needs.version.outputs.build_number }} \
+            --dart-define=APP_VERSION=${{ needs.version.outputs.tag }} \
+            --dart-define=UPDATE_REPO=${{ github.repository }}
+          mkdir -p dist ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app ipa/Payload/
+          (cd ipa && zip -qry ../dist/stollmly-ios-unsigned.ipa Payload)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [version, android, linux, windows, macos, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          ls -la dist
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          cat > notes.md <<EOF
+          Commit: ${GITHUB_SHA} (${GITHUB_REF_NAME})
+
+          | ファイル | 対象 |
+          |---|---|
+          | stollmly-android.apk | Android |
+          | stollmly-ios-unsigned.ipa | iOS (未署名。AltStore / SideStore 等で署名してインストール) |
+          | stollmly-windows-x64.zip | Windows 10/11 x64 |
+          | stollmly-macos.zip | macOS (未公証。初回は右クリック →「開く」) |
+          | stollmly-linux-x64.tar.gz | Linux x64 |
+          | stollmly-host-* | LLM が入っている PC で動かすブリッジ |
+
+          セットアップ手順は README を参照してください。
+          EOF
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            --prerelease
