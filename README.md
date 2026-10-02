@@ -141,6 +141,7 @@ cd host && dart run bin/stollmly_host.dart --help
 
 - 個人による非営利の実験的プロジェクトです。特定のサービス・企業とは関係ありません。
 - 同梱のサンプルキャラクターはすべてこのプロジェクトのオリジナルです。
+- 日本語フォント [Noto Sans JP](https://fonts.google.com/noto/specimen/Noto+Sans+JP) (SIL Open Font License 1.1) を同梱しています。ライセンス全文は `assets/fonts/OFL.txt` とアプリの「設定 → オープンソースライセンス」にあります。
 - 会話の生成内容は、あなたが動かしている LLM とキャラクター設定に依存します。既存作品のキャラクターを作る場合は、権利者のガイドラインに従い、私的な範囲で楽しんでください。
 - `stollmly-host` はインターネットに公開しないでください (ルーターのポート開放は不要です)。
 - 本ソフトウェアは MIT License で提供され、無保証です。

@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'app_state.dart';
 import 'ui/characters_page.dart';
@@ -9,10 +12,16 @@ import 'ui/widgets.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 同梱フォントのライセンスを「オープンソースライセンス」画面に載せる
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(['Noto Sans JP'], await rootBundle.loadString('assets/fonts/OFL.txt'));
+  });
   final state = await AppState.load();
   runApp(StollmlyApp(state: state));
   await state.startup();
 }
+
+const _fontFamily = 'NotoSansJP';
 
 class StollmlyApp extends StatelessWidget {
   const StollmlyApp({super.key, required this.state});
@@ -35,8 +44,17 @@ class StollmlyApp extends StatelessWidget {
               'dark' => ThemeMode.dark,
               _ => ThemeMode.system,
             },
-            theme: ThemeData(colorSchemeSeed: seed, useMaterial3: true),
-            darkTheme: ThemeData(colorSchemeSeed: seed, brightness: Brightness.dark, useMaterial3: true),
+            // 日本語ロケールにしておくと、OS のフォールバックフォントも日本語字形が選ばれる
+            locale: const Locale('ja', 'JP'),
+            supportedLocales: const [Locale('ja', 'JP')],
+            localizationsDelegates: GlobalMaterialLocalizations.delegates,
+            theme: ThemeData(colorSchemeSeed: seed, useMaterial3: true, fontFamily: _fontFamily),
+            darkTheme: ThemeData(
+              colorSchemeSeed: seed,
+              brightness: Brightness.dark,
+              useMaterial3: true,
+              fontFamily: _fontFamily,
+            ),
             home: const HomeShell(),
           );
         },
