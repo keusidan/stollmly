@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'models.dart';
 import 'net/discovery.dart';
@@ -30,12 +31,19 @@ class AppState extends ChangeNotifier {
 
   ReleaseInfo? availableUpdate;
 
+  /// 同梱の出力フォーマット (assets/prompts/output_format.md)。
+  String defaultOutputFormat = '';
+
+  /// 実際に使う出力フォーマット。ユーザーが編集していればそちらを優先。
+  String get outputFormat => settings.outputFormat ?? defaultOutputFormat;
+
   /// 生成中のセッション ID → 購読
   final Map<String, StreamSubscription<String>> _generating = {};
 
   static Future<AppState> load() async {
     final store = await JsonStore.open();
     final state = AppState._(store);
+    state.defaultOutputFormat = await rootBundle.loadString(outputFormatAsset);
     final data = await store.load();
     if (data == null) {
       state.characters.addAll(sampleCharacters());
@@ -304,6 +312,7 @@ class AppState extends ChangeNotifier {
       speaker: speaker,
       persona: personaFor(s),
       contextChars: settings.contextChars,
+      outputFormat: outputFormat,
     );
     // append 時は末尾が assistant になり、PromptBuilder が「(続けてください)」を足す
     final turns = builder.build(append ? [...history, target] : history);
@@ -374,6 +383,7 @@ class AppState extends ChangeNotifier {
       speaker: speaker,
       persona: personaFor(s),
       contextChars: settings.contextChars,
+      outputFormat: outputFormat,
     );
     final text = await client
         .chat(model: settings.model, messages: builder.buildSuggestions(s.messages), temperature: 1.0, maxTokens: 300)

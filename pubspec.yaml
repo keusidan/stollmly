@@ -63,6 +63,7 @@ flutter:
 
   assets:
     - assets/fonts/OFL.txt
+    - assets/prompts/output_format.md
 
   # Noto Sans JP (Google Fonts, SIL Open Font License 1.1)
   # 漢字が中国語字形で表示されないよう、日本語フォントを同梱する

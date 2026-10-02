@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:stollmly/models.dart';
 import 'package:stollmly/prompt.dart';
@@ -64,6 +66,7 @@ void main() {
         speaker: mio,
         persona: persona,
         contextChars: 10000,
+        outputFormat: '視点は{{pov}}。{{char}}は{{user}}に話しかける。',
       ).build(s.messages);
 
       final system = turns.first.content;
@@ -73,6 +76,9 @@ void main() {
       expect(system, contains('雷が苦手'));
       expect(system, contains('駅前にはクレープ屋がある'));
       expect(system, isNot(contains('出てはいけない')));
+      // 出力フォーマットのプレースホルダーが置き換わる
+      expect(system, contains('視点は${NarrationPov.third.instruction}。ミオはハルに話しかける。'));
+      expect(system, isNot(contains('{{')));
       // イントロ (assistant) が先頭に来たら user ターンを補う
       expect(turns.map((t) => t.role), ['system', 'user', 'assistant', 'user']);
     });
@@ -87,6 +93,7 @@ void main() {
         speaker: mio,
         persona: persona,
         contextChars: 350,
+        outputFormat: '',
       ).build(s.messages);
       // 連続する user ターンは 1 つにまとめられる
       expect(turns.length, 2);
@@ -96,6 +103,12 @@ void main() {
     test('返答候補のパース', () {
       expect(PromptBuilder.parseSuggestions('1. いいよ\n2) 嫌だ\n- 「考えとく」\n4. 余分'), ['いいよ', '嫌だ', '考えとく']);
     });
+  });
+
+  test('同梱の出力フォーマットは未知のプレースホルダーを含まない', () {
+    final text = File('assets/prompts/output_format.md').readAsStringSync();
+    final used = RegExp(r'\{\{(\w+)\}\}').allMatches(text).map((m) => m.group(1)).toSet();
+    expect(used.difference({'char', 'user', 'pov', 'tempo', 'openness', 'length'}), isEmpty);
   });
 
   test('名前の接頭辞を取り除く', () {
