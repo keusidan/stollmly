@@ -29,6 +29,14 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 同梱する ABI を CI のビルド対象 (android-arm64,android-x64) に揃える。
+        // 依存 package が他 ABI の .so を持っていると、その ABI の端末にもインストールでき、
+        // libflutter.so が無いため起動時にクラッシュしてしまう。
+        // Flutter Gradle plugin が既定の 3 ABI を先に入れているので、clear してから指定する。
+        ndk {
+            abiFilters.clear()
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     // アプリ内アップデートは「同じ署名鍵」で署名された APK でないとインストールできない。

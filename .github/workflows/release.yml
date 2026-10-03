@@ -123,8 +123,9 @@ jobs:
           if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
             echo "::warning::ANDROID_KEYSTORE_BASE64 が未設定のため一時的な debug 鍵で署名します。アプリ内アップデートで APK を上書きできません (README 参照)。"
           fi
-          # 現行の Android 端末はほぼ arm64 のみなので、32bit ARM / x86_64 は省いてビルド時間とサイズを削る
-          flutter build apk --release --target-platform android-arm64 \
+          # 現行の Android 端末はほぼ arm64。x86_64 はエミュレーターや x86 端末での動作確認用に含め、32bit ARM は省く
+          # (同梱 ABI は android/app/build.gradle.kts の abiFilters と揃える)
+          flutter build apk --release --target-platform android-arm64,android-x64 \
             --build-name=${{ needs.prepare.outputs.build_name }} \
             --build-number=${{ needs.prepare.outputs.build_number }} \
             --dart-define=APP_VERSION=$TAG \
