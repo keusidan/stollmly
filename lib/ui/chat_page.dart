@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../models.dart';
+import 'composer_keys.dart';
 import 'connect_page.dart';
 import 'memory_page.dart';
 import 'personas_page.dart';
@@ -19,7 +20,8 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   final _input = TextEditingController();
-  final _focus = FocusNode();
+  // Enter で送信、Shift+Enter で改行 (ハードウェアキーボード)
+  late final _focus = composerFocusNode(controller: _input, onSend: _sendFromKeyboard);
   List<String> _suggestions = const [];
   bool _suggesting = false;
 
@@ -62,6 +64,12 @@ class _ChatPageState extends State<ChatPage> {
     _input.clear();
     setState(() => _suggestions = const []);
     await _run(() => state.sendUserMessage(s, text, speaker: state.characterById(_nextSpeakerId)));
+  }
+
+  void _sendFromKeyboard() {
+    final state = AppScope.read(context);
+    final s = _session(state);
+    if (s != null) _send(state, s);
   }
 
   Future<void> _suggest(AppState state, ChatSession s) async {
@@ -309,25 +317,18 @@ class _ChatPageState extends State<ChatPage> {
             },
           ),
           Expanded(
-            child: CallbackShortcuts(
-              bindings: {
-                // デスクトップでは Ctrl+Enter / Cmd+Enter で送信
-                const SingleActivator(LogicalKeyboardKey.enter, control: true): () => _send(state, s),
-                const SingleActivator(LogicalKeyboardKey.enter, meta: true): () => _send(state, s),
-              },
-              child: TextField(
-                controller: _input,
-                focusNode: _focus,
-                minLines: 1,
-                maxLines: 6,
-                textInputAction: TextInputAction.newline,
-                decoration: InputDecoration(
-                  hintText: 'メッセージ',
-                  filled: true,
-                  fillColor: scheme.surfaceContainerHighest,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                ),
+            child: TextField(
+              controller: _input,
+              focusNode: _focus,
+              minLines: 1,
+              maxLines: 6,
+              textInputAction: TextInputAction.newline,
+              decoration: InputDecoration(
+                hintText: 'メッセージ',
+                filled: true,
+                fillColor: scheme.surfaceContainerHighest,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               ),
             ),
           ),
