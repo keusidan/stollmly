@@ -46,7 +46,9 @@ class RoleplayText extends StatelessWidget {
   final String text;
   final TextStyle? style;
 
-  static final _pattern = RegExp(r'\*([^*]+)\*');
+  // 対応は行の中だけで取る。閉じ忘れた `*` は行末までを地の文とみなし、
+  // 以降の行の開閉がずれて描写と台詞が逆転するのを防ぐ (生成途中の表示もこれで自然になる)。
+  static final _pattern = RegExp(r'\*([^*\n]+)(?:\*|$)', multiLine: true);
 
   @override
   Widget build(BuildContext context) {
