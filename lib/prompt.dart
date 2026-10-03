@@ -31,11 +31,11 @@ class PromptBuilder {
   /// 出力フォーマットの指示 (assets/prompts/output_format.md か、ユーザーが編集したもの)。
   final String outputFormat;
 
-  String get _userName => (persona?.name.trim().isNotEmpty ?? false) ? persona!.name.trim() : 'ユーザー';
+  String get userName => (persona?.name.trim().isNotEmpty ?? false) ? persona!.name.trim() : 'ユーザー';
 
   String _fill(String text) => text
       .replaceAll('{{char}}', speaker.name)
-      .replaceAll('{{user}}', _userName)
+      .replaceAll('{{user}}', userName)
       .replaceAll('{{pov}}', speaker.pov.instruction)
       .replaceAll('{{tempo}}', speaker.tempo.instruction)
       .replaceAll('{{openness}}', speaker.openness.instruction)
@@ -45,7 +45,7 @@ class PromptBuilder {
   /// 会話が進んでも変わらないので、LLM 側のプレフィックスキャッシュが効く。
   String fixedPrefix() {
     final system = StringBuffer()
-      ..writeln('これは創作ロールプレイです。あなたは「${speaker.name}」を演じ、$_userName と物語を紡ぎます。')
+      ..writeln('これは創作ロールプレイです。あなたは「${speaker.name}」を演じ、$userName と物語を紡ぎます。')
       ..writeln()
       ..writeln('# ${speaker.name} の設定')
       ..writeln(_fill(speaker.prompt).trim().isEmpty ? '(設定なし)' : _fill(speaker.prompt).trim());
@@ -63,7 +63,7 @@ class PromptBuilder {
     if (persona != null && persona!.description.trim().isNotEmpty) {
       system
         ..writeln()
-        ..writeln('# $_userName (ユーザー) について')
+        ..writeln('# $userName (ユーザー) について')
         ..writeln(persona!.description.trim());
     }
 
@@ -148,7 +148,7 @@ class PromptBuilder {
       } else if (m.role == MessageRole.character) {
         turns.add(ChatTurn('user', '[${_nameOf(m)}]\n${m.content}'));
       } else {
-        turns.add(ChatTurn('user', session.isGroup ? '[$_userName]\n${m.content}' : m.content));
+        turns.add(ChatTurn('user', session.isGroup ? '[$userName]\n${m.content}' : m.content));
       }
     }
     // 先頭がイントロ (assistant) のときなど、user から始まらないモデル向けの保険
@@ -161,7 +161,7 @@ class PromptBuilder {
     return _mergeConsecutive(turns);
   }
 
-  String _nameOf(Message m) => m.role == MessageRole.user ? _userName : (characters[m.characterId]?.name ?? '???');
+  String _nameOf(Message m) => m.role == MessageRole.user ? userName : (characters[m.characterId]?.name ?? '???');
 
   /// 返答候補 (⚡ ボタン) 用のプロンプト。
   List<ChatTurn> buildSuggestions(List<Message> history) {
@@ -173,15 +173,16 @@ class PromptBuilder {
     return [
       ChatTurn(
         'system',
-        'あなたはロールプレイの補助役です。以下の会話の続きとして、$_userName が次に言いそうな返答を'
+        'あなたはロールプレイの補助役です。以下の会話の続きとして、$userName が次に言いそうな返答を'
             '3 つ、方向性を変えて提案してください。1 行に 1 つ、番号や説明を付けずに出力してください。'
-            '${persona?.description.trim().isNotEmpty ?? false ? '\n$_userName の設定: ${persona!.description.trim()}' : ''}',
+            '${persona?.description.trim().isNotEmpty ?? false ? '\n$userName の設定: ${persona!.description.trim()}' : ''}',
       ),
-      ChatTurn('user', '会話:\n$log\n$_userName の返答候補を 3 行で:'),
+      ChatTurn('user', '会話:\n$log\n$userName の返答候補を 3 行で:'),
     ];
   }
 
-  static List<String> parseSuggestions(String text) {
+  /// [userName] を渡すと、会話ログの書式を真似た `名前: ` の接頭辞も取り除く。
+  static List<String> parseSuggestions(String text, {String? userName}) {
     final cleaned = text
         .split('\n')
         .map(
@@ -191,6 +192,7 @@ class PromptBuilder {
               .replaceFirst(RegExp(r'^((\d+\s*行目?\s*[:：]|\d+[\.\)、:]|[-・*]|「)\s*)+'), '')
               .replaceFirst(RegExp(r'」$'), ''),
         )
+        .map((l) => userName == null ? l : stripSpeakerPrefix(l, userName))
         .where((l) => l.isNotEmpty)
         .toSet();
     return cleaned.take(3).toList();

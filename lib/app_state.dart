@@ -473,7 +473,7 @@ class AppState extends ChangeNotifier {
     final text = await client
         .chat(model: settings.model, messages: builder.buildSuggestions(s.messages), temperature: 1.0, maxTokens: 300)
         .join();
-    return PromptBuilder.parseSuggestions(text);
+    return PromptBuilder.parseSuggestions(text, userName: builder.userName);
   }
 
   // ---------------------------------------------------------------- 長期記憶
