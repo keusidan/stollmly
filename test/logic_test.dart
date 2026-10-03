@@ -112,6 +112,7 @@ void main() {
         'ほんと？',
       ]);
       expect(PromptBuilder.parseSuggestions('行いますか？\n行きますか?\n行いますか？\n行いますか?'), ['行いますか？', '行きますか?', '行いますか?']);
+      expect(PromptBuilder.parseSuggestions('あなた: お手伝い。\n1行目: あなた：行こうか', userName: 'あなた'), ['お手伝い。', '行こうか']);
     });
   });
 
