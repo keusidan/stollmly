@@ -12,7 +12,7 @@ import 'dart:io';
 import 'dart:math';
 
 const protocolVersion = 1;
-const hostVersion = '0.2.0';
+const hostVersion = '0.2.1';
 const defaultHttpPort = 47320;
 const discoveryPort = 47321;
 const discoveryMagic = 'STOLLMLY_DISCOVER';
@@ -238,7 +238,7 @@ class Upstream {
     final response = await request.close();
     final body = await utf8.decodeStream(response);
     if (response.statusCode != 200) {
-      throw HttpException('上流が embedding でエラーを返しました (${response.statusCode}): ${_truncate(body, 500)}');
+      throw HttpException('上流が embedding でエラーを返しました (${response.statusCode}): ${_upstreamError(body)}');
     }
     final data = (jsonDecode(body) as Map<String, dynamic>)['data'] as List<dynamic>? ?? const [];
     final sorted = [for (final d in data) d as Map<String, dynamic>]
@@ -257,7 +257,7 @@ class Upstream {
     final response = await request.close();
     if (response.statusCode != 200) {
       final text = await utf8.decodeStream(response);
-      throw HttpException('上流がエラーを返しました (${response.statusCode}): ${_truncate(text, 500)}');
+      throw HttpException('上流がエラーを返しました (${response.statusCode}): ${_upstreamError(text)}');
     }
     // アプリ側が切断したら上流の生成も止める (GPU を無駄に回さない)
     unawaited(cancel.then((_) => request.abort()));
@@ -377,7 +377,7 @@ class Host {
     } catch (e) {
       _log('${request.method} ${request.uri.path} 失敗: $e');
       try {
-        await _json(response, HttpStatus.badGateway, {'error': e.toString()});
+        await _json(response, HttpStatus.badGateway, {'error': _errorText(e)});
       } catch (_) {
         // ヘッダ送信済みなど。接続ごと捨てる
       }
@@ -430,7 +430,7 @@ class Host {
       if (!cancel.isCompleted) response.write('${jsonEncode({'done': true})}\n');
     } catch (e) {
       _log('chat エラー: $e');
-      if (!cancel.isCompleted) response.write('${jsonEncode({'error': e.toString()})}\n');
+      if (!cancel.isCompleted) response.write('${jsonEncode({'error': _errorText(e)})}\n');
     } finally {
       if (!cancel.isCompleted) cancel.complete();
       await response.close().catchError((_) {});
@@ -451,7 +451,7 @@ class Host {
       return await _json(request.response, HttpStatus.ok, {'model': model, 'embeddings': vectors});
     } catch (e) {
       _log('embed エラー: $e');
-      return await _json(request.response, HttpStatus.badGateway, {'error': e.toString()});
+      return await _json(request.response, HttpStatus.badGateway, {'error': _errorText(e)});
     }
   }
 
@@ -505,6 +505,20 @@ bool _constantTimeEquals(String a, String b) {
 }
 
 String _truncate(String s, int n) => s.length <= n ? s : '${s.substring(0, n)}…';
+
+/// 上流のエラー本文から読める部分を取り出す。OpenAI 互換の `{"error":{"message":...}}` /
+/// `{"error":"..."}` ならそのメッセージ、それ以外は本文の先頭。
+String _upstreamError(String body) {
+  try {
+    final error = (jsonDecode(body) as Map<String, dynamic>)['error'];
+    final message = error is Map ? error['message'] : error;
+    if (message is String && message.isNotEmpty) return _truncate(message, 500);
+  } catch (_) {}
+  return _truncate(body, 500);
+}
+
+/// アプリに返すエラー文。HttpException の "HttpException: " 接頭辞は付けない。
+String _errorText(Object e) => e is HttpException ? e.message : e.toString();
 
 void _log(String message) {
   final now = DateTime.now().toIso8601String().substring(11, 19);
