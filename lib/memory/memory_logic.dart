@@ -128,8 +128,12 @@ MemoryCheckpoint makeCheckpoint(SessionMemory memory, List<Message> messages) =>
 
 // ---------------------------------------------------------------- 重要メモ
 
-final _factLine = RegExp(r'^\s*(?:[-・*•]|\d+[.)．])\s*(?:\[\s*(?:重要度\s*[:：]?\s*)?([1-3])\s*\]\s*)?(.+?)\s*$');
+// 行頭の `*` は直後に空白があるときだけ箇条書きとみなす (`*…*` は会話の地の文)
+final _factLine = RegExp(r'^\s*(?:[-・•]|\*(?=\s)|\d+[.)．])\s*(?:\[\s*(?:重要度\s*[:：]?\s*)?([1-3])\s*\]\s*)?(.+?)\s*$');
 final _bareImportance = RegExp(r'^\s*\[\s*(?:重要度\s*[:：]?\s*)?([1-3])\s*\]\s*(.+?)\s*$');
+// 小型モデルが出す崩れた形: `重要度 2 内容: …` と、プロンプトの見出しの書き写し
+final _importanceLabel = RegExp(r'^重要度\s*(\d+)\s*(?:内容)?\s*[:：]\s*');
+final _promptHeading = RegExp(r'^(?:固定メモ|現在のメモ|新しい会話)\s*[:：]');
 
 /// LLM の出力 (`- [重要度3] 内容` の箇条書き) を項目に分解する。
 List<MemoryItem> parseFacts(String text) {
@@ -140,9 +144,20 @@ List<MemoryItem> parseFacts(String text) {
     if (line.isEmpty || line.startsWith('#') || line.startsWith('```')) continue;
     final m = _factLine.firstMatch(line) ?? _bareImportance.firstMatch(line);
     if (m == null) continue;
-    final body = m.group(2)!.trim();
+    var importance = int.tryParse(m.group(1) ?? '');
+    var body = m.group(2)!.replaceAll('*', '').trim();
+    if (_promptHeading.hasMatch(body)) continue;
+    final label = _importanceLabel.firstMatch(body);
+    if (label != null) {
+      final n = int.parse(label.group(1)!);
+      if (n >= 1 && n <= 3) importance ??= n;
+      body = body.substring(label.end);
+    }
+    if (body.startsWith('「') && body.endsWith('」') && !body.substring(1).contains('「')) {
+      body = body.substring(1, body.length - 1).trim();
+    }
     if (body.isEmpty || !seen.add(body)) continue;
-    items.add(MemoryItem(text: body, importance: int.tryParse(m.group(1) ?? '') ?? 2));
+    items.add(MemoryItem(text: body, importance: importance ?? 2));
   }
   return items;
 }
