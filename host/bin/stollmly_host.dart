@@ -12,7 +12,7 @@ import 'dart:io';
 import 'dart:math';
 
 const protocolVersion = 1;
-const hostVersion = '0.2.1';
+const hostVersion = '0.2.2';
 const defaultHttpPort = 47320;
 const discoveryPort = 47321;
 const discoveryMagic = 'STOLLMLY_DISCOVER';
@@ -77,6 +77,7 @@ class Config {
     required this.name,
     required this.upstream,
     required this.upstreamApiKey,
+    required this.reasoningEffort,
     required this.token,
     required this.allowPublic,
     required this.showHelp,
@@ -86,6 +87,10 @@ class Config {
   final String name;
   final String? upstream;
   final String? upstreamApiKey;
+
+  /// チャットの上流リクエストに付ける reasoning_effort。null なら付けない (モデル既定)。
+  /// 思考するモデルは思考中 content が空のため、none にしないと返事が遅れたり max_tokens で空になる。
+  final String? reasoningEffort;
 
   /// 設定するとアプリ側で接続時にトークン入力が必要になる。
   final String? token;
@@ -103,20 +108,22 @@ stollmly-host $hostVersion — LAN 上の stollmly アプリにローカル LLM 
   --upstream URL     OpenAI 互換 API のベース URL (例: http://127.0.0.1:11434/v1)
                      省略時は Ollama / llama.cpp / LM Studio / vLLM を自動検出
   --upstream-key KEY 上流 API に Bearer で渡すキー (必要な場合のみ)
+  --reasoning-effort none|low|medium|high
+                     思考するモデルの思考量。none で思考を止める (省略時はモデル既定)
   --port N           HTTP ポート (既定: $defaultHttpPort)。発見用 UDP は常に $discoveryPort
   --name NAME        アプリに表示されるホスト名 (既定: マシンのホスト名)
   --token TOKEN      接続に必要なトークン。省略時はトークン不要 (LAN 内限定)
   --allow-public     プライベート IP 以外からの接続も許可する (非推奨)
   -h, --help         このヘルプを表示
 
-環境変数 STOLLMLY_UPSTREAM / STOLLMLY_UPSTREAM_KEY / STOLLMLY_PORT /
-STOLLMLY_NAME / STOLLMLY_TOKEN でも指定できます (引数が優先)。''';
+環境変数 STOLLMLY_UPSTREAM / STOLLMLY_UPSTREAM_KEY / STOLLMLY_REASONING_EFFORT /
+STOLLMLY_PORT / STOLLMLY_NAME / STOLLMLY_TOKEN でも指定できます (引数が優先)。''';
 
   static Config parse(List<String> args) {
     final env = Platform.environment;
     final values = <String, String>{};
     final flags = <String>{};
-    const valued = {'--upstream', '--upstream-key', '--port', '--name', '--token'};
+    const valued = {'--upstream', '--upstream-key', '--reasoning-effort', '--port', '--name', '--token'};
     const boolean = {'--allow-public', '--help', '-h'};
 
     for (var i = 0; i < args.length; i++) {
@@ -153,11 +160,17 @@ STOLLMLY_NAME / STOLLMLY_TOKEN でも指定できます (引数が優先)。''';
       upstream = upstream.substring(0, upstream.length - 1);
     }
 
+    final reasoningEffort = nonEmpty(values['--reasoning-effort'] ?? env['STOLLMLY_REASONING_EFFORT']);
+    if (reasoningEffort != null && !const {'none', 'low', 'medium', 'high'}.contains(reasoningEffort)) {
+      throw FormatException('--reasoning-effort は none / low / medium / high のいずれかです: $reasoningEffort');
+    }
+
     return Config(
       port: port,
       name: nonEmpty(values['--name'] ?? env['STOLLMLY_NAME']) ?? Platform.localHostname,
       upstream: upstream,
       upstreamApiKey: nonEmpty(values['--upstream-key'] ?? env['STOLLMLY_UPSTREAM_KEY']),
+      reasoningEffort: reasoningEffort,
       token: nonEmpty(values['--token'] ?? env['STOLLMLY_TOKEN']),
       allowPublic: flags.contains('--allow-public'),
       showHelp: flags.contains('--help') || flags.contains('-h'),
@@ -308,6 +321,7 @@ class Host {
     final addresses = await _lanAddresses();
     _log('stollmly-host $hostVersion 起動 — 名前: "${config.name}"');
     _log('上流 LLM: ${upstream.baseUrl}');
+    if (config.reasoningEffort != null) _log('思考 (reasoning_effort): ${config.reasoningEffort}');
     for (final a in addresses) {
       _log('  アプリからの接続先: $a:${config.port}');
     }
@@ -402,6 +416,7 @@ class Host {
       'messages': messages,
       for (final key in const ['temperature', 'top_p', 'max_tokens', 'stop', 'presence_penalty', 'frequency_penalty'])
         if (body[key] != null) key: body[key],
+      if (config.reasoningEffort != null) 'reasoning_effort': config.reasoningEffort,
     };
 
     final response = request.response

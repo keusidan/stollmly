@@ -10,6 +10,7 @@ Wants=network-online.target
 ExecStart=%h/.local/bin/stollmly-host
 # 上流を固定したい場合 (未指定なら Ollama / llama.cpp / LM Studio / vLLM を自動検出)
 #Environment=STOLLMLY_UPSTREAM=http://127.0.0.1:11434/v1
+#Environment=STOLLMLY_REASONING_EFFORT=none
 #Environment=STOLLMLY_TOKEN=change-me
 Restart=on-failure
 RestartSec=5

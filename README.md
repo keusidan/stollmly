@@ -54,6 +54,10 @@ stollmly-host            # 起動すると接続先の IP が表示されます
 
 ソースから動かす場合は `cd host && dart run bin/stollmly_host.dart` です。
 
+思考 (reasoning) するモデル (gemma4 など) は、思考している間アプリに何も届かず、返事の長さの上限に
+思考だけで達すると返事が空になります。思考を止めるには `--reasoning-effort none` を付けます
+(環境変数 `STOLLMLY_REASONING_EFFORT` でも可)。
+
 常駐させる場合 (systemd ユーザーサービス):
 
 ```sh
