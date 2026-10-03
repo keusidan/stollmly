@@ -656,7 +656,7 @@ class AppState extends ChangeNotifier {
 
   Future<ReleaseInfo?> checkForUpdate({bool silent = false}) async {
     try {
-      final latest = await Updater.fetchLatest();
+      final latest = await Updater.fetchLatest(includeBranches: settings.updateFromAllBranches);
       final newer = latest != null && Updater.isNewer(latest.tag, appVersion);
       availableUpdate = newer ? latest : null;
       notifyListeners();

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
@@ -224,6 +226,17 @@ class SettingsPage extends StatelessWidget {
             onChanged: (v) {
               settings.checkUpdatesOnStart = v;
               state.commit();
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.science_outlined),
+            title: const Text('main 以外のブランチのビルドも受け取る'),
+            subtitle: const Text('開発中の変更を試せます。不安定なことがあります。'),
+            value: settings.updateFromAllBranches,
+            onChanged: (v) {
+              settings.updateFromAllBranches = v;
+              state.commit();
+              unawaited(state.checkForUpdate(silent: true));
             },
           ),
           header('このアプリについて'),

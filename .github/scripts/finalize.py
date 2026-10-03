@@ -38,6 +38,8 @@ def main() -> None:
     rels = [
         r for r in json.loads(gh('api', f'repos/{REPO}/releases?per_page=100'))
         if not r['draft'] and r['tag_name'].startswith('alpha-')
+        # main のリリースノートでは、変更なしの参照先も main のリリースから選ぶ
+        and (os.environ['GITHUB_REF_NAME'] != 'main' or not r['prerelease'])
     ]
     rels.sort(key=lambda r: r['tag_name'], reverse=True)
 
