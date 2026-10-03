@@ -60,6 +60,8 @@ enum InstallOutcome {
   openedInBrowser,
 }
 
+const _offlineMessage = 'GitHub に接続できませんでした。ネットワーク接続を確認してから再試行してください。';
+
 class UpdateException implements Exception {
   UpdateException(this.message);
 
@@ -95,11 +97,18 @@ class Updater {
 
   static Future<ReleaseInfo?> fetchLatest() async {
     final uri = Uri.https('api.github.com', '/repos/$updateRepo/releases', {'per_page': '50'});
-    final request = await _http.getUrl(uri);
-    request.headers
-      ..set(HttpHeaders.acceptHeader, 'application/vnd.github+json')
-      ..set(HttpHeaders.userAgentHeader, 'stollmly-updater');
-    final response = await request.close().timeout(const Duration(seconds: 20));
+    final HttpClientResponse response;
+    try {
+      final request = await _http.getUrl(uri);
+      request.headers
+        ..set(HttpHeaders.acceptHeader, 'application/vnd.github+json')
+        ..set(HttpHeaders.userAgentHeader, 'stollmly-updater');
+      response = await request.close().timeout(const Duration(seconds: 20));
+    } on IOException {
+      throw UpdateException(_offlineMessage);
+    } on TimeoutException {
+      throw UpdateException(_offlineMessage);
+    }
     final body = await utf8.decodeStream(response);
     if (response.statusCode == 403 || response.statusCode == 429) {
       throw UpdateException('GitHub API のレート制限中です。しばらくしてから再試行してください。');
@@ -151,9 +160,14 @@ class Updater {
     await dir.create(recursive: true);
     final file = File('${dir.path}${Platform.pathSeparator}${asset.name}');
 
-    final request = await _http.getUrl(asset.url);
-    request.headers.set(HttpHeaders.userAgentHeader, 'stollmly-updater');
-    final response = await request.close();
+    final HttpClientResponse response;
+    try {
+      final request = await _http.getUrl(asset.url);
+      request.headers.set(HttpHeaders.userAgentHeader, 'stollmly-updater');
+      response = await request.close();
+    } on IOException {
+      throw UpdateException(_offlineMessage);
+    }
     if (response.statusCode != 200) {
       throw UpdateException('ダウンロードに失敗しました (${response.statusCode})');
     }
