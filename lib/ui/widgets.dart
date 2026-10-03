@@ -48,7 +48,8 @@ class RoleplayText extends StatelessWidget {
 
   // 対応は行の中だけで取る。閉じ忘れた `*` は行末までを地の文とみなし、
   // 以降の行の開閉がずれて描写と台詞が逆転するのを防ぐ (生成途中の表示もこれで自然になる)。
-  static final _pattern = RegExp(r'\*([^*\n]+)(?:\*|$)', multiLine: true);
+  // `*` は地の文の記号なので、行末に残った片方だけの `*` や `**` も表示しない。
+  static final _pattern = RegExp(r'\*([^*\n]*)(?:\*|$)', multiLine: true);
 
   @override
   Widget build(BuildContext context) {
@@ -61,7 +62,7 @@ class RoleplayText extends StatelessWidget {
     var last = 0;
     for (final m in _pattern.allMatches(text)) {
       if (m.start > last) spans.add(TextSpan(text: text.substring(last, m.start)));
-      spans.add(TextSpan(text: m.group(1), style: narration));
+      if (m.group(1)!.isNotEmpty) spans.add(TextSpan(text: m.group(1), style: narration));
       last = m.end;
     }
     if (last < text.length) spans.add(TextSpan(text: text.substring(last)));

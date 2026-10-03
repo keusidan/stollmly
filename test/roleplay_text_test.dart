@@ -24,6 +24,15 @@ void main() {
     ]);
   });
 
+  testWidgets('行末に残った閉じ側だけの * は表示しない (小型モデルの実際の出力)', (tester) async {
+    expect(await render(tester, '*ミオに目を向ける。.\n「朝の出発。.*\n*ミオは笑う。*'), [
+      ('ミオに目を向ける。.', true),
+      ('\n「朝の出発。.', false),
+      ('\n', false),
+      ('ミオは笑う。', true),
+    ]);
+  });
+
   testWidgets('生成途中で閉じていない * は表示しない', (tester) async {
     expect(await render(tester, 'うん。\n*ミオは頰を'), [('うん。\n', false), ('ミオは頰を', true)]);
   });
