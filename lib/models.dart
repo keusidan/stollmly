@@ -379,6 +379,7 @@ class AppSettings {
     this.themeMode = 'system',
     this.defaultPersonaId,
     this.checkUpdatesOnStart = true,
+    this.updateFromAllBranches = false,
     this.skippedVersion,
     this.outputFormat,
     this.memoryEnabled = true,
@@ -401,6 +402,9 @@ class AppSettings {
   String themeMode;
   String? defaultPersonaId;
   bool checkUpdatesOnStart;
+
+  /// main 以外のブランチのビルドもアップデート対象にする。
+  bool updateFromAllBranches;
   String? skippedVersion;
 
   /// ユーザーが編集した出力フォーマット。null なら同梱の既定を使う。
@@ -447,6 +451,7 @@ class AppSettings {
     'themeMode': themeMode,
     'defaultPersonaId': defaultPersonaId,
     'checkUpdatesOnStart': checkUpdatesOnStart,
+    'updateFromAllBranches': updateFromAllBranches,
     'skippedVersion': skippedVersion,
     'outputFormat': outputFormat,
     'memoryEnabled': memoryEnabled,
@@ -468,6 +473,7 @@ class AppSettings {
     themeMode: j['themeMode'] as String? ?? 'system',
     defaultPersonaId: j['defaultPersonaId'] as String?,
     checkUpdatesOnStart: j['checkUpdatesOnStart'] as bool? ?? true,
+    updateFromAllBranches: j['updateFromAllBranches'] as bool? ?? false,
     skippedVersion: j['skippedVersion'] as String?,
     outputFormat: j['outputFormat'] as String?,
     memoryEnabled: j['memoryEnabled'] as bool? ?? true,

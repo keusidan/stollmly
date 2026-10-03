@@ -21,13 +21,14 @@ void main() {
   });
 
   group('Updater.pickLatest', () {
-    ReleaseInfo release(String tag, List<String> assets) => ReleaseInfo(
+    ReleaseInfo release(String tag, List<String> assets, {bool prerelease = false}) => ReleaseInfo(
       tag: tag,
       name: tag,
       body: '',
       htmlUrl: Uri.parse('https://example.com/$tag'),
       publishedAt: null,
       assets: [for (final a in assets) ReleaseAsset(name: a, url: Uri.parse('https://example.com/$a'), size: 1)],
+      prerelease: prerelease,
     );
 
     test('自分のプラットフォームのアセットを含む最新リリースを選ぶ', () {
@@ -39,6 +40,18 @@ void main() {
       expect(Updater.pickLatest(releases, 'stollmly-android.apk')?.tag, 'alpha-20261002T000000Z');
       expect(Updater.pickLatest(releases, 'stollmly-ios-unsigned.ipa')?.tag, 'alpha-20261003T000000Z');
       expect(Updater.pickLatest(releases, 'stollmly-macos.zip'), isNull);
+    });
+
+    test('既定では main のビルドだけ、設定でオンなら他ブランチ (prerelease) も選ぶ', () {
+      final releases = [
+        release('alpha-20261002T000000Z', ['stollmly-android.apk']),
+        release('alpha-20261003T000000Z', ['stollmly-android.apk'], prerelease: true),
+      ];
+      expect(Updater.pickLatest(releases, 'stollmly-android.apk')?.tag, 'alpha-20261002T000000Z');
+      expect(
+        Updater.pickLatest(releases, 'stollmly-android.apk', includeBranches: true)?.tag,
+        'alpha-20261003T000000Z',
+      );
     });
   });
 

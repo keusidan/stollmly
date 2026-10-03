@@ -30,6 +30,7 @@ class ReleaseInfo {
     required this.htmlUrl,
     required this.publishedAt,
     required this.assets,
+    this.prerelease = false,
   });
 
   final String tag;
@@ -38,6 +39,9 @@ class ReleaseInfo {
   final Uri htmlUrl;
   final DateTime? publishedAt;
   final List<ReleaseAsset> assets;
+
+  /// main 以外のブランチのビルド (CI が prerelease として公開する)。
+  final bool prerelease;
 
   ReleaseAsset? get assetForThisPlatform {
     final wanted = Updater.assetNameForPlatform;
@@ -93,7 +97,8 @@ class Updater {
     return tag.compareTo(current) > 0;
   }
 
-  static Future<ReleaseInfo?> fetchLatest() async {
+  /// [includeBranches] が false なら main のビルドだけを対象にする。
+  static Future<ReleaseInfo?> fetchLatest({bool includeBranches = false}) async {
     final uri = Uri.https('api.github.com', '/repos/$updateRepo/releases', {'per_page': '50'});
     final request = await _http.getUrl(uri);
     request.headers
@@ -119,6 +124,7 @@ class Updater {
           body: m['body'] as String? ?? '',
           htmlUrl: Uri.parse(m['html_url'] as String),
           publishedAt: DateTime.tryParse(m['published_at'] as String? ?? ''),
+          prerelease: m['prerelease'] == true,
           assets: [
             for (final a in m['assets'] as List<dynamic>? ?? const [])
               // アップロード途中のアセットは state が uploaded でない
@@ -132,15 +138,15 @@ class Updater {
         ),
       );
     }
-    return pickLatest(releases, assetNameForPlatform);
+    return pickLatest(releases, assetNameForPlatform, includeBranches: includeBranches);
   }
 
   /// 差分ビルドのため 1 つのリリースに全プラットフォームが揃うとは限らない。
   /// [assetName] を含むリリースのうち最新のものを返す。
-  static ReleaseInfo? pickLatest(List<ReleaseInfo> releases, String? assetName) {
+  static ReleaseInfo? pickLatest(List<ReleaseInfo> releases, String? assetName, {bool includeBranches = false}) {
     final candidates = [
       for (final r in releases)
-        if (assetName == null || r.assets.any((a) => a.name == assetName)) r,
+        if ((includeBranches || !r.prerelease) && (assetName == null || r.assets.any((a) => a.name == assetName))) r,
     ]..sort((a, b) => b.tag.compareTo(a.tag));
     return candidates.firstOrNull;
   }

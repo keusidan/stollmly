@@ -2,6 +2,7 @@
 
 各コンポーネントについて「そのアセットを含む最新の alpha リリース」の commit を基準に
 git diff を取り、関係するパスに変更があれば build=true を出力する。
+main では main のリリース (prerelease でないもの) だけを基準にする。
 基準が見つからない・取得できない・FORCE_ALL=true のときはビルドする。
 """
 
@@ -34,6 +35,8 @@ def releases() -> list[dict]:
         capture_output=True, text=True, check=True,
     ).stdout
     items = [r for r in json.loads(out) if not r['draft'] and r['tag_name'].startswith('alpha-')]
+    if os.environ.get('GITHUB_REF_NAME') == 'main':
+        items = [r for r in items if not r['prerelease']]
     return sorted(items, key=lambda r: r['tag_name'], reverse=True)
 
 

@@ -69,8 +69,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.v.outputs.tag }}
         run: |
+          # main のビルドだけを通常のリリースにし、他のブランチは prerelease にする。
+          # アプリ内アップデートは既定で通常のリリースだけを対象にする (lib/update/updater.dart)
+          prerelease=--prerelease
+          if [ "$GITHUB_REF_NAME" = main ]; then prerelease=; fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "$TAG" --prerelease --notes "ビルド中… できたものから順に追加されます。"
+            --title "$TAG" $prerelease --notes "ビルド中… できたものから順に追加されます。"
 
   test:
     needs: prepare
