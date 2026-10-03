@@ -184,9 +184,15 @@ class PromptBuilder {
   static List<String> parseSuggestions(String text) {
     final cleaned = text
         .split('\n')
-        .map((l) => l.trim().replaceFirst(RegExp(r'^((\d+[\.\)、:]|[-・*]|「)\s*)+'), '').replaceFirst(RegExp(r'」$'), ''))
+        .map(
+          (l) => l
+              .trim()
+              // 小型モデルは `1行目:` `2 行:` のような行ラベルを付けることがある
+              .replaceFirst(RegExp(r'^((\d+\s*行目?\s*[:：]|\d+[\.\)、:]|[-・*]|「)\s*)+'), '')
+              .replaceFirst(RegExp(r'」$'), ''),
+        )
         .where((l) => l.isNotEmpty)
-        .toList();
+        .toSet();
     return cleaned.take(3).toList();
   }
 
