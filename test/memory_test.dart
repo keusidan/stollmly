@@ -111,6 +111,25 @@ void main() {
       expect([for (final f in items) f.importance], [3, 2, 2, 1]);
     });
 
+    test('小型モデルの崩れた出力: 地の文・見出しの書き写し・括弧なしの重要度', () {
+      final items = parseFacts('''
+- **固定メモ**: 今週末、島のビーチを楽しみたい。
+
+- **新しい会話**: 白瀬ミオ: お腹を空いて泳ぎ回る。
+*ミオは、お腹を空いて泳ぎ回る。*
+- 重要度 1 内容: 「今週末は、泳ぎに行く計画を立てている。」
+- 重要度 3 内容: 「ミオは、雷が苦手だ。」
+- 重要度 7 内容: 「By the way, call me Haru from now on。」
+- 重要度 10 内容: 「ミオは、雷が苦手だ。」
+- **ハル**はミオの幼なじみ
+''');
+      expect(
+        [for (final f in items) f.text],
+        ['今週末は、泳ぎに行く計画を立てている。', 'ミオは、雷が苦手だ。', 'By the way, call me Haru from now on。', 'ハルはミオの幼なじみ'],
+      );
+      expect([for (final f in items) f.importance], [1, 3, 2, 2]);
+    });
+
     test('統合: ピン留めは残り、同じ文面は ID を引き継ぎ、空の出力なら以前のまま', () {
       final pinned = MemoryItem(text: '名前はハル', pinned: true);
       final keep = MemoryItem(text: '好物はクレープ');
