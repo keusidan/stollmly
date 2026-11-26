@@ -145,6 +145,18 @@ GitHub の Settings → Secrets and variables → Actions に次の 4 つを登�
 
 未登録の場合はビルドごとに使い捨ての debug 鍵で署名されます (ビルドは通りますが、APK の上書き更新はできません)。
 
+## 音声合成 (TTS) — Google Colab (Drama-3-Japanese)
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/keusidan/stollmly/blob/main/colab/drama3_japanese_tts.ipynb)
+
+[StudioYebisu-ship-it/Drama-3-Japanese-speech-cpp-gguf](https://huggingface.co/StudioYebisu-ship-it/Drama-3-Japanese-speech-cpp-gguf)（[nyosegawa/speech.cpp](https://github.com/nyosegawa/speech.cpp)）を Google Colab 上で起動し、stollmly からキャラクターの返答を音声再生できます。
+
+1. 上の **Open In Colab** バッジからノートブックを開き、GPU ランタイム（無料 T4 でも `small-IQ3_XXS` が動作します）で各セルを順に実行します。
+2. 最後のセルで表示される `https://xxxx.trycloudflare.com` の URL をコピーし、stollmly アプリの **設定 → 音声合成 (TTS) → TTS サーバー URL** に貼り付けます。
+3. チャット画面のキャラクター発言の下（または長押しメニュー）のスピーカーアイコンから音声を生成・再生できます。
+
+- **Built with Fish Audio.** Drama-3-Japanese の重みは [Fish Audio Community License 1.0](https://huggingface.co/Aratako/Drama-3-Japanese)（非営利の研究・個人利用向け）に従います。
+
 ## 開発
 
 ```sh

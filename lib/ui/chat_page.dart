@@ -385,6 +385,8 @@ class _ChatPageState extends State<ChatPage> {
           // 最後の候補でさらに進めたら再生成する
           await _run(() => state.regenerate(s));
         }
+      case _MessageAction.speak:
+        await _run(() => state.toggleSpeakMessage(m));
     }
   }
 
@@ -475,7 +477,7 @@ Future<String?> _editText(BuildContext context, String title, String initial, {S
   return result;
 }
 
-enum _MessageAction { copy, edit, editResend, rewind, branch, regenerate, continueText, previous, next }
+enum _MessageAction { copy, edit, editResend, rewind, branch, regenerate, continueText, previous, next, speak }
 
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
@@ -494,6 +496,12 @@ class _MessageBubble extends StatelessWidget {
   final ValueChanged<_MessageAction> onAction;
 
   Future<void> _showMenu(BuildContext context) async {
+    final state = AppScope.read(context);
+    final canSpeak =
+        message.role == MessageRole.character &&
+        message.content.trim().isNotEmpty &&
+        state.settings.ttsBaseUrl.trim().isNotEmpty;
+    final isActiveTts = state.ttsMessageId == message.id;
     final action = await showModalBottomSheet<_MessageAction>(
       context: context,
       showDragHandle: true,
@@ -501,6 +509,12 @@ class _MessageBubble extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (canSpeak)
+              ListTile(
+                leading: Icon(isActiveTts ? Icons.stop_circle_outlined : Icons.volume_up_outlined),
+                title: Text(isActiveTts ? '読み上げを停止' : '音声で読み上げる'),
+                onTap: () => Navigator.pop(context, _MessageAction.speak),
+              ),
             ListTile(
               leading: const Icon(Icons.copy),
               title: const Text('コピー'),
@@ -543,6 +557,11 @@ class _MessageBubble extends StatelessWidget {
     // イントロ (まだ自分が一度も話していない段階) は作り直しの対象にしない
     final hasUserMessage = session.messages.any((m) => m.role == MessageRole.user);
     final showControls = !isUser && isLast && !generating && hasUserMessage;
+    final showTtsButton =
+        !isUser && !generating && message.content.trim().isNotEmpty && state.settings.ttsBaseUrl.trim().isNotEmpty;
+    final isThisTts = state.ttsMessageId == message.id;
+    final isTtsLoading = isThisTts && state.ttsLoading;
+    final isTtsPlaying = isThisTts && state.ttsPlaying;
 
     final bubble = Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -597,37 +616,52 @@ class _MessageBubble extends StatelessWidget {
                         : null,
                     child: bubble,
                   ),
-                  if (showControls)
+                  if (showControls || showTtsButton)
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.chevron_left),
-                          onPressed: message.selected > 0 ? () => onAction(_MessageAction.previous) : null,
-                        ),
-                        Text(
-                          '${message.selected + 1} / ${message.alternates.length}',
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          tooltip: message.selected < message.alternates.length - 1 ? '次の候補' : '別の応答を生成',
-                          icon: const Icon(Icons.chevron_right),
-                          onPressed: () => onAction(_MessageAction.next),
-                        ),
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          tooltip: '再生成',
-                          icon: const Icon(Icons.refresh),
-                          onPressed: () => onAction(_MessageAction.regenerate),
-                        ),
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          tooltip: '続きを書く',
-                          icon: const Icon(Icons.more_horiz),
-                          onPressed: () => onAction(_MessageAction.continueText),
-                        ),
+                        if (showControls) ...[
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(Icons.chevron_left),
+                            onPressed: message.selected > 0 ? () => onAction(_MessageAction.previous) : null,
+                          ),
+                          Text(
+                            '${message.selected + 1} / ${message.alternates.length}',
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: message.selected < message.alternates.length - 1 ? '次の候補' : '別の応答を生成',
+                            icon: const Icon(Icons.chevron_right),
+                            onPressed: () => onAction(_MessageAction.next),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: '再生成',
+                            icon: const Icon(Icons.refresh),
+                            onPressed: () => onAction(_MessageAction.regenerate),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: '続きを書く',
+                            icon: const Icon(Icons.more_horiz),
+                            onPressed: () => onAction(_MessageAction.continueText),
+                          ),
+                        ],
+                        if (showTtsButton)
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: isThisTts ? '読み上げを停止' : '音声で読み上げる',
+                            icon: isTtsLoading
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : Icon(isTtsPlaying ? Icons.stop_circle_outlined : Icons.volume_up_outlined),
+                            onPressed: () => onAction(_MessageAction.speak),
+                          ),
                       ],
                     ),
                 ],

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -14,6 +15,7 @@ import 'memory/memory_service.dart';
 import 'models.dart';
 import 'net/discovery.dart';
 import 'net/host_client.dart';
+import 'net/tts_client.dart';
 import 'prompt.dart';
 import 'sample_data.dart';
 import 'storage.dart';
@@ -46,6 +48,13 @@ class AppState extends ChangeNotifier {
 
   /// 生成中のセッション ID → 購読
   final Map<String, StreamSubscription<String>> _generating = {};
+
+  // TTS 再生状態
+  AudioPlayer? _ttsPlayer;
+  StreamSubscription<void>? _ttsCompleteSub;
+  String? ttsMessageId;
+  bool ttsLoading = false;
+  bool ttsPlaying = false;
 
   /// 長期記憶 (要約・重要メモ・検索)。
   late final MemoryService memory;
@@ -652,6 +661,77 @@ class AppState extends ChangeNotifier {
     commit();
   }
 
+  // ---------------------------------------------------------------- 音声合成 (TTS)
+
+  AudioPlayer _ensureTtsPlayer() {
+    if (_ttsPlayer != null) return _ttsPlayer!;
+    final player = AudioPlayer();
+    _ttsCompleteSub = player.onPlayerComplete.listen((_) {
+      ttsMessageId = null;
+      ttsLoading = false;
+      ttsPlaying = false;
+      notifyListeners();
+    });
+    _ttsPlayer = player;
+    return player;
+  }
+
+  Future<void> toggleSpeakMessage(Message message) async {
+    if (ttsMessageId == message.id) {
+      await stopTts();
+      return;
+    }
+    await stopTts();
+    if (settings.ttsBaseUrl.trim().isEmpty) {
+      throw TtsException('TTS サーバーの URL が未設定です。設定 → 音声合成 (TTS) から設定してください。');
+    }
+    final text = prepareTtsText(message.content, dialogueOnly: settings.ttsSpeakDialogueOnly);
+    if (text.isEmpty) return;
+
+    ttsMessageId = message.id;
+    ttsLoading = true;
+    ttsPlaying = false;
+    notifyListeners();
+
+    try {
+      final client = TtsClient(settings.ttsBaseUrl, apiKey: settings.ttsApiKey);
+      final wavBytes = await client.synthesize(input: text, voice: settings.ttsVoice);
+      if (ttsMessageId != message.id) return;
+
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}${Platform.pathSeparator}stollmly_tts_current.wav');
+      await file.writeAsBytes(wavBytes, flush: true);
+      if (ttsMessageId != message.id) return;
+
+      final player = _ensureTtsPlayer();
+      await player.play(DeviceFileSource(file.path));
+      if (ttsMessageId != message.id) {
+        await player.stop();
+        return;
+      }
+      ttsLoading = false;
+      ttsPlaying = true;
+      notifyListeners();
+    } catch (_) {
+      if (ttsMessageId == message.id) {
+        ttsMessageId = null;
+        ttsLoading = false;
+        ttsPlaying = false;
+        notifyListeners();
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> stopTts() async {
+    final hadState = ttsMessageId != null || ttsLoading || ttsPlaying;
+    ttsMessageId = null;
+    ttsLoading = false;
+    ttsPlaying = false;
+    await _ttsPlayer?.stop();
+    if (hadState) notifyListeners();
+  }
+
   // ---------------------------------------------------------------- アップデート
 
   Future<ReleaseInfo?> checkForUpdate({bool silent = false}) async {
@@ -672,6 +752,8 @@ class AppState extends ChangeNotifier {
     for (final sub in _generating.values) {
       sub.cancel();
     }
+    _ttsCompleteSub?.cancel();
+    _ttsPlayer?.dispose();
     super.dispose();
   }
 }

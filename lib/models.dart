@@ -390,6 +390,10 @@ class AppSettings {
     this.retrievalEnabled = true,
     this.retrievalTopK = 3,
     this.embedModel = 'bge-m3',
+    this.ttsBaseUrl = '',
+    this.ttsVoice = 'none',
+    this.ttsApiKey = '',
+    this.ttsSpeakDialogueOnly = true,
   });
 
   List<SavedHost> hosts;
@@ -423,6 +427,12 @@ class AppSettings {
   bool retrievalEnabled;
   int retrievalTopK;
   String embedModel;
+
+  // 音声合成 (TTS)
+  String ttsBaseUrl;
+  String ttsVoice;
+  String ttsApiKey;
+  bool ttsSpeakDialogueOnly;
 
   MemoryConfig get memoryConfig => MemoryConfig(
     enabled: memoryEnabled,
@@ -462,6 +472,10 @@ class AppSettings {
     'retrievalEnabled': retrievalEnabled,
     'retrievalTopK': retrievalTopK,
     'embedModel': embedModel,
+    'ttsBaseUrl': ttsBaseUrl,
+    'ttsVoice': ttsVoice,
+    'ttsApiKey': ttsApiKey,
+    'ttsSpeakDialogueOnly': ttsSpeakDialogueOnly,
   };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -484,5 +498,9 @@ class AppSettings {
     retrievalEnabled: j['retrievalEnabled'] as bool? ?? true,
     retrievalTopK: j['retrievalTopK'] as int? ?? 3,
     embedModel: j['embedModel'] as String? ?? 'bge-m3',
+    ttsBaseUrl: j['ttsBaseUrl'] as String? ?? '',
+    ttsVoice: j['ttsVoice'] as String? ?? 'none',
+    ttsApiKey: j['ttsApiKey'] as String? ?? '',
+    ttsSpeakDialogueOnly: j['ttsSpeakDialogueOnly'] as bool? ?? true,
   );
 }

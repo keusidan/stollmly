@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../net/tts_client.dart';
 import '../update/updater.dart';
 import 'connect_page.dart';
 import 'output_format_page.dart';
@@ -77,6 +78,90 @@ class SettingsPage extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          header('音声合成 (TTS)'),
+          ListTile(
+            leading: const Icon(Icons.record_voice_over_outlined),
+            title: const Text('TTS サーバー URL'),
+            subtitle: Text(settings.ttsBaseUrl.trim().isEmpty ? '未設定 (Colab などの URL を入力)' : settings.ttsBaseUrl),
+            trailing: const Icon(Icons.edit_outlined),
+            onTap: () async {
+              final value = await _askString(
+                context,
+                title: 'TTS サーバー URL',
+                initial: settings.ttsBaseUrl,
+                hint: 'https://xxxx.trycloudflare.com',
+                helper: 'speech.cpp serve や OpenAI 互換 Audio API のベース URL を入力します。空にすると無効になります。',
+              );
+              if (value != null) {
+                settings.ttsBaseUrl = value.trim();
+                state.commit();
+              }
+            },
+          ),
+          ListTile(
+            leading: const SizedBox(width: 24),
+            title: const Text('ボイス'),
+            subtitle: Text(settings.ttsVoice.trim().isEmpty ? 'none' : settings.ttsVoice),
+            trailing: const Icon(Icons.edit_outlined),
+            onTap: () async {
+              final value = await _askString(
+                context,
+                title: 'ボイス',
+                initial: settings.ttsVoice,
+                hint: 'none',
+                helper: 'Drama 3 の既定は none です。--add-voice で登録した名前も指定できます。',
+              );
+              if (value != null) {
+                final trimmed = value.trim();
+                settings.ttsVoice = trimmed.isEmpty ? 'none' : trimmed;
+                state.commit();
+              }
+            },
+          ),
+          ListTile(
+            leading: const SizedBox(width: 24),
+            title: const Text('API キー (任意)'),
+            subtitle: Text(settings.ttsApiKey.trim().isEmpty ? '未設定' : '設定済み'),
+            trailing: const Icon(Icons.edit_outlined),
+            onTap: () async {
+              final value = await _askString(
+                context,
+                title: 'API キー (任意)',
+                initial: settings.ttsApiKey,
+                helper: 'Bearer 認証が必要なサーバーのみ入力してください。',
+                obscure: true,
+              );
+              if (value != null) {
+                settings.ttsApiKey = value.trim();
+                state.commit();
+              }
+            },
+          ),
+          SwitchListTile(
+            secondary: const SizedBox(width: 24),
+            title: const Text('台詞のみ読み上げる'),
+            subtitle: const Text('*描写* を除いて台詞だけ読み上げます'),
+            value: settings.ttsSpeakDialogueOnly,
+            onChanged: (v) {
+              settings.ttsSpeakDialogueOnly = v;
+              state.commit();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.network_check),
+            title: const Text('接続テスト'),
+            subtitle: const Text('設定した TTS サーバーの /health を確認します'),
+            onTap: () async {
+              try {
+                final res = await TtsClient(settings.ttsBaseUrl, apiKey: settings.ttsApiKey).checkHealth();
+                if (!context.mounted) return;
+                final modelsText = res.models.isEmpty ? 'OK' : 'OK (モデル: ${res.models.join(', ')})';
+                showInfo(context, 'TTS サーバーに接続できました: $modelsText');
+              } catch (e) {
+                if (context.mounted) showError(context, e);
+              }
+            },
           ),
           header('長期記憶'),
           SwitchListTile(
@@ -303,4 +388,33 @@ class _IntSlider extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<String?> _askString(
+  BuildContext context, {
+  required String title,
+  required String initial,
+  String? hint,
+  String? helper,
+  bool obscure = false,
+}) async {
+  final controller = TextEditingController(text: initial);
+  final result = await showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        obscureText: obscure,
+        decoration: InputDecoration(hintText: hint, helperText: helper, helperMaxLines: 3),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('キャンセル')),
+        FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('保存')),
+      ],
+    ),
+  );
+  controller.dispose();
+  return result;
 }
